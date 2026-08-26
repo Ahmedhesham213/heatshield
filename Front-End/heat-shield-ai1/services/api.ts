@@ -10,6 +10,84 @@ const client = axios.create({
   },
 })
 
+export function isUSLocation(lat: number, lon: number): boolean {
+  // Contiguous US
+  if (lat >= 24.0 && lat <= 50.0 && lon >= -125.0 && lon <= -66.0) return true
+  // Alaska
+  if (lat >= 51.0 && lat <= 72.0 && lon >= -180.0 && lon <= -129.0) return true
+  // Hawaii
+  if (lat >= 18.0 && lat <= 29.0 && lon >= -180.0 && lon <= -154.0) return true
+  // Puerto Rico / US Virgin Islands
+  if (lat >= 17.5 && lat <= 18.6 && lon >= -67.5 && lon <= -64.5) return true
+  return false
+}
+
+export type AuthUser = {
+  id: number
+  name: string
+  email: string
+  initials: string
+}
+
+export type AuthResponse = {
+  token: string
+  user: AuthUser
+}
+
+export type SavedLocation = {
+  id: number
+  name: string
+  lat: number
+  lon: number
+  created_at: string
+}
+
+// ── AUTH APIS ──────────────────────────────────────────────────────
+export async function registerApi(name: string, email: string, password: string): Promise<AuthResponse> {
+  const { data } = await client.post<AuthResponse>('/api/auth/register', { name, email, password })
+  return data
+}
+
+export async function loginApi(email: string, password: string): Promise<AuthResponse> {
+  const { data } = await client.post<AuthResponse>('/api/auth/login', { email, password })
+  return data
+}
+
+export async function getMeApi(token: string): Promise<AuthUser> {
+  const { data } = await client.get<{ user: AuthUser }>('/api/auth/me', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return data.user
+}
+
+export async function logoutApi(token: string): Promise<void> {
+  await client.post('/api/auth/logout', {}, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// ── SAVED LOCATIONS APIS ───────────────────────────────────────────
+export async function getSavedLocationsApi(token: string): Promise<SavedLocation[]> {
+  const { data } = await client.get<SavedLocation[]>('/api/user/saved-locations', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return data
+}
+
+export async function addSavedLocationApi(token: string, name: string, lat: number, lon: number): Promise<SavedLocation> {
+  const { data } = await client.post<SavedLocation>('/api/user/saved-locations', { name, lat, lon }, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return data
+}
+
+export async function deleteSavedLocationApi(token: string, locationId: number): Promise<void> {
+  await client.delete(`/api/user/saved-locations/${locationId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// ── HEAT RISK TYPES & APIS ─────────────────────────────────────────
 type HeatRiskApiLocation = {
   lat?: number
   lon?: number
@@ -23,6 +101,7 @@ type HeatRiskApiRiskFactors = {
 
 type HeatRiskApiHistorical = {
   averageTemperature?: number
+  is_unusual?: boolean
   isUnusual?: boolean
   diff?: number
   message?: string
@@ -101,6 +180,18 @@ export type HeatRiskResponse = {
   recommendation: string
 }
 
+export type NearbySaferResponse = {
+  base_temp_c: number
+  safer_temp_c: number
+  delta_c: number
+  distance_m: number
+  direction: string
+  lat: number
+  lon: number
+  is_meaningfully_cooler: boolean
+  maps_url: string
+}
+
 function toNumber(value: number | string | undefined, fallback = 0): number {
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
@@ -133,7 +224,7 @@ function mapHeatRiskData(data: HeatRiskApiResponse, fallbackLat: number, fallbac
     },
     historical: {
       averageTemperature: toNumber(data.historical_avg_c, 0),
-      isUnusual: Boolean(data.vs_historical?.isUnusual),
+      isUnusual: Boolean(data.vs_historical?.is_unusual ?? data.vs_historical?.isUnusual),
       difference: toNumber(data.vs_historical?.diff, 0),
       message: toStringOrDefault(data.vs_historical?.message, 'No historical comparison available.'),
     },
@@ -159,37 +250,14 @@ function mapHeatRiskData(data: HeatRiskApiResponse, fallbackLat: number, fallbac
 
 export async function getHeatRisk(lat: number, lon: number): Promise<HeatRiskResponse> {
   const { data } = await client.get<HeatRiskApiResponse>('/api/heat-risk', {
-    params: {
-      lat,
-      lon,
-    },
+    params: { lat, lon },
   })
-
   return mapHeatRiskData(data, lat, lon)
 }
 
-export async function getCoolerRoutes(
-  origin: { lat: number; lon: number },
-  destination: { lat: number; lon: number },
-) {
-  return [
-    {
-      id: 'coolest',
-      label: 'Coolest route',
-      durationMinutes: 24,
-      distanceKm: 4.8,
-      averageTemperature: 36.4,
-      maxExposure: 61,
-      recommended: true,
-    },
-    {
-      id: 'fastest',
-      label: 'Fastest route',
-      durationMinutes: 22,
-      distanceKm: 4.2,
-      averageTemperature: 40.2,
-      maxExposure: 84,
-      recommended: false,
-    },
-  ]
+export async function getNearbySafer(lat: number, lon: number, radiusM = 300): Promise<NearbySaferResponse> {
+  const { data } = await client.get<NearbySaferResponse>('/api/nearby-safer', {
+    params: { lat, lon, radius_m: radiusM },
+  })
+  return data
 }
