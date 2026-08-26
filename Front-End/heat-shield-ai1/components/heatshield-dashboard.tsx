@@ -222,7 +222,7 @@ export function HeatShieldDashboard() {
             <span className="text-lg font-semibold tracking-tight">HeatShield</span>
           </a>
 
-          <nav className={`${mobileNav ? 'absolute left-0 right-0 top-16 flex border-b border-border bg-background p-4 shadow-lg' : 'hidden'} flex-col gap-1 md:static md:flex md:flex-row md:items-center md:border-0 md:bg-transparent md:p-0 md:shadow-none`}>
+          <nav id="main-nav" role="navigation" aria-label="Main navigation" className={`${mobileNav ? 'absolute left-0 right-0 top-16 flex border-b border-border bg-background p-4 shadow-lg' : 'hidden'} flex-col gap-1 md:static md:flex md:flex-row md:items-center md:border-0 md:bg-transparent md:p-0 md:shadow-none`}>
             <a className="rounded-lg px-3 py-2 text-sm font-medium text-foreground md:bg-muted" href="#dashboard" onClick={(event) => handleSectionClick(event, 'dashboard')}>Dashboard</a>
             <a className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-foreground" href="#map" onClick={(event) => handleSectionClick(event, 'map')}>Heat map</a>
             <a className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-foreground" href="#forecast" onClick={(event) => handleSectionClick(event, 'forecast')}>Forecast</a>
@@ -235,7 +235,7 @@ export function HeatShieldDashboard() {
               New York City, USA
               <ChevronDown className="ml-1 size-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileNav((prev) => !prev)} aria-label="Toggle navigation">
+            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileNav((prev) => !prev)} aria-label="Toggle navigation" aria-controls="main-nav" aria-expanded={mobileNav}>
               {mobileNav ? <X className="size-4" /> : <Menu className="size-4" />}
             </Button>
             <ThemeToggle />
@@ -306,7 +306,7 @@ export function HeatShieldDashboard() {
 
               <div className="mt-6 flex items-end justify-between gap-6">
                 <div>
-                  <div className="font-mono text-5xl font-semibold tracking-tight">
+                  <div aria-live="polite" aria-atomic="true" className="font-mono text-5xl font-semibold tracking-tight">
                     {loading && !heatData ? '--' : heatData ? formatTemperature(heatData.current.temperature) : '--'}
                   </div>
                   <div className="mt-2 flex items-center gap-2 text-sm text-primary-foreground/75">
