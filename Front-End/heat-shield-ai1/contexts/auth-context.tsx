@@ -10,6 +10,8 @@ import {
   type AuthUser,
 } from '@/services/api'
 
+export type { AuthUser }
+
 export const DEMO_EMAIL = 'mirey17981@bejum.com'
 export const DEMO_PASSWORD = 'admin'
 

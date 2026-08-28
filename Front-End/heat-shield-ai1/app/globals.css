@@ -81,10 +81,18 @@
   --sidebar-ring: oklch(0.708 0 0);
 
   --surface-muted: oklch(0.92 0.018 100);
-  --risk-moderate: oklch(0.78 0.16 116);
-  --risk-high: oklch(0.75 0.18 70);
-  --risk-very-high: oklch(0.65 0.22 45);
-  --risk-extreme: oklch(0.48 0.24 25);
+  /* Risk level color system */
+  --risk-low: #16a34a;
+  --risk-moderate: #eab308;
+  --risk-high: #f97316;
+  --risk-very-high: #ef4444;
+  --risk-extreme: #991b1b;
+  /* Forecast chart band opacities */
+  --band-low: rgba(22, 163, 74, 0.08);
+  --band-moderate: rgba(234, 179, 8, 0.10);
+  --band-high: rgba(249, 115, 22, 0.12);
+  --band-very-high: rgba(239, 68, 68, 0.14);
+  --band-extreme: rgba(153, 27, 27, 0.18);
 }
 
 .dark {
@@ -122,25 +130,102 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
-.risk-moderate { background-color: oklch(0.78 0.16 116 / 0.18); color: oklch(0.45 0.15 125); border: 1px solid oklch(0.78 0.16 116 / 0.4); }
-.risk-high { background-color: oklch(0.78 0.16 76 / 0.18); color: oklch(0.55 0.18 65); border: 1px solid oklch(0.78 0.16 76 / 0.4); }
-.risk-very-high { background-color: oklch(0.68 0.18 48 / 0.18); color: oklch(0.62 0.2 40); border: 1px solid oklch(0.68 0.18 48 / 0.4); }
-.risk-extreme { background-color: oklch(0.48 0.18 25 / 0.22); color: oklch(0.65 0.24 25); border: 1px solid oklch(0.48 0.18 25 / 0.4); }
+.risk-low { background-color: rgba(22, 163, 74, 0.12); color: #15803d; border: 1px solid rgba(22, 163, 74, 0.35); }
+.risk-moderate { background-color: rgba(234, 179, 8, 0.12); color: #a16207; border: 1px solid rgba(234, 179, 8, 0.35); }
+.risk-high { background-color: rgba(249, 115, 22, 0.12); color: #c2410c; border: 1px solid rgba(249, 115, 22, 0.35); }
+.risk-very-high { background-color: rgba(239, 68, 68, 0.12); color: #b91c1c; border: 1px solid rgba(239, 68, 68, 0.35); }
+.risk-extreme { background-color: rgba(153, 27, 27, 0.18); color: #7f1d1d; border: 1px solid rgba(153, 27, 27, 0.40); }
 
-.dark .risk-moderate { color: oklch(0.85 0.14 116); }
-.dark .risk-high { color: oklch(0.88 0.15 75); }
-.dark .risk-very-high { color: oklch(0.88 0.18 45); }
-.dark .risk-extreme { color: oklch(0.88 0.22 25); }
+.dark .risk-low { color: #4ade80; }
+.dark .risk-moderate { color: #facc15; }
+.dark .risk-high { color: #fb923c; }
+.dark .risk-very-high { color: #f87171; }
+.dark .risk-extreme { color: #fca5a5; }
+
+/* ── MICRO-ANIMATION KEYFRAMES ─────────────────────────────────── */
+@keyframes ring-sweep {
+  from { --ring-pct: 0%; }
+  to   { --ring-pct: var(--ring-target, 70%); }
+}
+
+@keyframes count-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes peak-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.65; transform: scale(1.15); }
+}
+
+@keyframes heat-pulse {
+  0%   { box-shadow: 0 0 0 0 var(--pulse-color, rgba(249,115,22,0.5)); }
+  70%  { box-shadow: 0 0 0 18px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-fast {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes draw-line {
+  from { stroke-dashoffset: 1000; }
+  to   { stroke-dashoffset: 0; }
+}
+
+@keyframes boot-reveal {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Utility animation classes */
+.animate-slide-up   { animation: slide-up 0.4s ease both; }
+.animate-fade-in    { animation: fade-in-fast 0.3s ease both; }
+.animate-peak-pulse { animation: peak-pulse 2s ease-in-out infinite; }
+.animate-heat-pulse { animation: heat-pulse 2s ease-out infinite; }
+.animate-boot       { animation: boot-reveal 0.5s cubic-bezier(0.16,1,0.3,1) both; }
+
+/* Staggered card delays */
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.12s; }
+.stagger-3 { animation-delay: 0.20s; }
+.stagger-4 { animation-delay: 0.28s; }
+.stagger-5 { animation-delay: 0.38s; }
+.stagger-6 { animation-delay: 0.48s; }
 
 .heatshield-location-marker { background: transparent; border: 0; }
 .heatshield-location-marker span { display: block; width: 18px; height: 18px; border-radius: 999px; background: var(--primary); border: 4px solid var(--card); box-shadow: 0 0 0 6px color-mix(in oklab, var(--primary) 25%, transparent), 0 3px 10px color-mix(in oklab, var(--foreground) 30%, transparent); }
 
+/* Map pulse marker */
+.map-pulse-marker { animation: heat-pulse 2.2s ease-out infinite; }
+
+/* Confidence bar fill animation */
+@keyframes bar-fill {
+  from { width: 0%; }
+  to   { width: var(--bar-width, 0%); }
+}
+.animate-bar-fill { animation: bar-fill 0.8s cubic-bezier(0.16,1,0.3,1) both; }
+
 @layer base {
+  html, body {
+    overflow-x: hidden;
+    max-width: 100vw;
+    -webkit-tap-highlight-color: transparent;
+  }
   * {
     @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground font-sans antialiased selection:bg-primary/20 selection:text-primary;
+  }
+  button, a {
+    touch-action: manipulation;
   }
 }
 

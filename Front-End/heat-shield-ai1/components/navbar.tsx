@@ -45,9 +45,9 @@ export function Navbar({
   onRequestGps: () => void
 }) {
   const { user, logout } = useAuth()
-  const [mobileNav, setMobileNav] = useState(false)
   const [cityDropdownOpen, setCityDropdownOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [tabletNavOpen, setTabletNavOpen] = useState(false)
   const [activeSection, setActiveSection] = useState('dashboard')
 
   // IntersectionObserver for active section tracking
@@ -79,7 +79,7 @@ export function Navbar({
 
   const handleNavClick = (event: React.MouseEvent<HTMLAnchorElement>, sectionId: string) => {
     event.preventDefault()
-    setMobileNav(false)
+    setTabletNavOpen(false)
     setActiveSection(sectionId)
     const target = document.getElementById(sectionId)
     if (target) {
@@ -110,8 +110,8 @@ export function Navbar({
             </div>
           </a>
 
-          {/* Desktop Navigation */}
-          <nav className="hidden md:flex md:items-center md:gap-1">
+          {/* Desktop Navigation (Only on lg: 1024px+ screens) */}
+          <nav className="hidden lg:flex lg:items-center lg:gap-1">
             {NAV_ITEMS.map((item) => {
               const isActive = activeSection === item.id
               return (
@@ -243,23 +243,23 @@ export function Navbar({
               )}
             </div>
 
-            {/* Hamburger menu */}
+            {/* Tablet Burger Menu Button (Visible ONLY on tablet screens: 768px to 1023px) */}
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden"
-              onClick={() => setMobileNav((prev) => !prev)}
-              aria-label="Toggle Navigation Menu"
+              className="hidden md:flex lg:hidden rounded-xl h-10 w-10"
+              onClick={() => setTabletNavOpen((prev) => !prev)}
+              aria-label="Toggle Tablet Navigation Menu"
             >
-              {mobileNav ? <X className="size-5" /> : <Menu className="size-5" />}
+              {tabletNavOpen ? <X className="size-5" /> : <Menu className="size-5" />}
             </Button>
           </div>
         </div>
 
-        {/* Mobile Nav Dropdown Drawer */}
-        {mobileNav && (
-          <div className="border-b border-border bg-background p-3 shadow-lg md:hidden animate-in slide-in-from-top-2">
-            <nav className="flex flex-col gap-1">
+        {/* Tablet Nav Dropdown Drawer (Visible ONLY on tablet screens when open) */}
+        {tabletNavOpen && (
+          <div className="border-b border-border bg-background p-3 shadow-lg hidden md:block lg:hidden animate-in slide-in-from-top-2">
+            <nav className="flex flex-col gap-1 max-w-sm mx-auto">
               {NAV_ITEMS.map((item) => {
                 const isActive = activeSection === item.id
                 const Icon = item.icon
@@ -285,7 +285,7 @@ export function Navbar({
       </header>
 
       {/* Outdoor Mobile Bottom Quick Nav Bar (1-Hand Thumb Access) */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-border/80 bg-background/95 backdrop-blur-md md:hidden py-1.5 px-2 shadow-2xl">
+      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-border/80 bg-background/95 backdrop-blur-lg md:hidden pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom,0px))] px-2 shadow-2xl">
         <div className="grid grid-cols-4 gap-1">
           {NAV_ITEMS.map((item) => {
             const isActive = activeSection === item.id
@@ -295,12 +295,15 @@ export function Navbar({
                 key={item.id}
                 href={`#${item.id}`}
                 onClick={(e) => handleNavClick(e, item.id)}
-                className={`flex flex-col items-center justify-center py-1.5 rounded-xl text-[10px] font-extrabold transition-all min-h-[48px] ${
-                  isActive ? 'text-primary bg-primary/10' : 'text-muted-foreground'
+                className={`relative flex flex-col items-center justify-center py-1.5 rounded-xl text-[10px] font-extrabold transition-all active:scale-95 min-h-[48px] ${
+                  isActive ? 'text-primary bg-primary/10 shadow-xs' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <Icon className="size-5 mb-0.5" />
                 <span>{item.label}</span>
+                {isActive && (
+                  <span className="absolute top-1 right-3 size-1.5 rounded-full bg-primary animate-pulse" />
+                )}
               </a>
             )
           })}
