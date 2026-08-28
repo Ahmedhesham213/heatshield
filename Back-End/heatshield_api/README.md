@@ -1,102 +1,284 @@
-# 🛡️ HeatShield API — Backend
+# HeatShield Backend API
 
-Single endpoint: give it `lat` + `lon`, get back everything the frontend needs.
+> **HeatShield Explainable AI Heat Risk Engine** — heatshield-risk-v1  
+> Powered by FortyGuard hyper-local temperature intelligence.
 
-## 🚀 Run it
+---
+
+## Safety Disclaimer
+
+> HeatShield provides heat-risk decision support and does not replace official weather warnings, occupational safety guidance, or medical advice.
+
+---
+
+## Quick Start
 
 ```bash
+cd Back-End/heatshield_api
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+py -m uvicorn main:app --reload --port 8000
 ```
 
-Then open **http://localhost:8000/docs** for the interactive Swagger UI —
-you can test the endpoint directly in the browser, no Postman needed.
-
-## 📡 The Endpoint
-
-```
-GET /api/heat-risk?lat=40.7829&lon=-73.9654
+Test with New York City:
+```bash
+curl "http://localhost:8000/api/heat-risk?lat=40.7128&lon=-74.0060"
 ```
 
-### Example response
+---
+
+## What the HeatShield AI Engine Does
+
+HeatShield uses **explainable heat-risk intelligence** rather than a black-box classifier.
+
+It combines five signals into a transparent **0–100 Risk Score**, then classifies it into one of five actionable levels:
+
+| Score | Level | Meaning |
+|-------|-------|---------|
+| 0–19 | 🟢 Low | Safe conditions |
+| 20–39 | 🟡 Moderate | Caution for extended outdoor activity |
+| 40–59 | 🟠 High | Limit strenuous outdoor work |
+| 60–79 | 🔴 Very High | Avoid prolonged outdoor exposure |
+| 80–100 | 🆘 Extreme | Avoid outdoor exposure entirely |
+
+---
+
+## Risk Model Formula
+
+### Five Signals
+
+| Signal | Default Weight | Description |
+|--------|---------------|-------------|
+| Thermal Severity | 40% | Current heat stress from temp/heat-index/apparent-temp |
+| Historical Anomaly | 20% | How unusual today is vs local baseline |
+| Forecast Persistence | 20% | TRUE temporal exposure analysis (not a temp ratio) |
+| Forecast Peak | 10% | How severe is the upcoming peak vs current |
+| Solar Load | 10% | Global horizontal irradiance (if available) |
+
+**Dynamic Renormalization**: If any signal is absent (e.g., solar data unavailable), its weight is redistributed proportionally across the remaining signals. Missing data is **never** treated as zero risk.
+
+**Safety Floor**: The final risk level can never fall below the level implied by the primary thermal stress indicator alone. This prevents a high historical baseline from incorrectly downgrading an actually-dangerous location.
+
+```
+final_score = weighted_composite(thermal, anomaly, persistence, peak, solar)
+final_score = max(final_score, thermal_floor)
+```
+
+### Thermal Severity Anchors
+
+The thermal score uses anchor-point interpolation (not a linear formula):
+
+| Temperature (°C) | Score |
+|------------------|-------|
+| 20 | 0 |
+| 27 | 12 |
+| 32 | 30 |
+| 36 | 48 |
+| 39 | 63 |
+| 42 | 78 |
+| 46 | 92 |
+| 50+ | 100 |
+
+**Signal priority**: `heat_index_c > apparent_temp_c > temp_c`
+
+---
+
+## Three Primary UI Factors
+
+| UI Field | Mapped To | Description |
+|----------|-----------|-------------|
+| `risk_factors.temperature` | Thermal severity score | How hot the air feels right now |
+| `risk_factors.historical_gap` | Anomaly score | How unusual today is vs local baseline |
+| `risk_factors.heat_duration` | Persistence score | How long high-risk conditions last |
+
+---
+
+## Historical Anomaly Detection
+
+The engine detects whether today is **unusually hot for this specific location**.
+
+**Z-score method** (preferred, when historical std is available):
+```
+z = (current_temp - historical_mean) / historical_std
+anomaly_score = clamp(z / 3.0 * 100, 0, 100)
+is_unusual = z >= 1.5
+```
+
+**Delta fallback** (when std unavailable):
+```
+anomaly_score = clamp((current - mean) / 8.0 * 100, 0, 100)
+is_unusual = (current - mean) >= 3.0
+```
+
+> Negative deviations (cooler than average) **reduce** anomaly risk to zero, never increase it.
+
+---
+
+## Forecast Persistence
+
+The persistence score measures **actual temporal heat exposure**, not a temperature ratio.
+
+```
+fraction_score = (high_risk_hours / total_hours) * 100
+run_score = (longest_continuous_run / 12) * 100
+persistence_score = 0.6 * fraction_score + 0.4 * run_score
+```
+
+Returns:
+- `high_risk_hours` — count of forecast hours at High/Very High/Extreme
+- `longest_continuous_high_risk_hours` — longest unbroken danger run
+- `very_high_risk_hours` and `extreme_hours`
+
+---
+
+## Peak Heat Windows
+
+The peak window algorithm uses **contiguous segment detection** — it never merges separated danger windows.
+
+Example:
+```
+12:00 high
+13:00 high  ← primary window (contains peak)
+14:00 high
+15:00 low   ← break
+16:00 high  ← separate window
+17:00 high
+```
+Result: Two separate windows. Primary window = segment containing hottest hour.
+
+---
+
+## Environmental Modifiers
+
+When available from FortyGuard:
+- **Heat Index** — primary thermal stress indicator (physiologically preferred)
+- **Apparent Temperature** — secondary fallback
+- **Relative Humidity** — small modifier when heat index not available
+- **Solar GHI** — normalized solar load score (0–100)
+- **Wet Bulb Temperature** — available in snapshot but not fabricated
+
+---
+
+## Explainability Output
+
+Every API response includes:
 
 ```json
 {
-  "location": {"lat": 40.7829, "lon": -73.9654},
-  "current_temp_c": 32.9,
-  "current_temp_f": 91.2,
-  "feels_like_c": 34.4,
-  "risk_score": 42,
-  "risk_level": "moderate",
-  "risk_label": "Moderate",
-  "risk_emoji": "🟡",
-  "risk_factors": {
-    "temperature": 50,
-    "historical_gap": 0,
-    "heat_duration": 87
-  },
-  "historical_avg_c": 33.9,
-  "vs_historical": {
-    "is_unusual": false,
-    "diff": -1.0,
-    "message": "Normal range for this location (-1.0°C vs. average)"
-  },
-  "peak_next_12h": {
-    "peak_temp": 38.0,
-    "peak_time": "01:27",
-    "window_start": "23:27",
-    "window_end": "03:27"
-  },
-  "forecast_12h": [ {"hour_offset": 0, "time": "20:27", "temp_c": 34.0, "level": "moderate", "emoji": "🟡", "label": "Moderate"}, ... ],
-  "ai_recommendation": "Moderate Risk — Outdoor activity is generally fine, but stay hydrated between 23:27 and 03:27."
+  "explainability": {
+    "model_version": "heatshield-risk-v1",
+    "confidence": 0.87,
+    "top_drivers": [
+      "Very high thermal stress",
+      "4.6C above the local historical baseline",
+      "4 consecutive high-risk forecast hours"
+    ],
+    "factor_contributions": {
+      "thermal": 27.2,
+      "anomaly": 14.3,
+      "persistence": 18.1,
+      "peak": 7.8
+    },
+    "data_quality": {
+      "current_temperature": true,
+      "forecast": true,
+      "historical_baseline": true,
+      "environmental_parameters": true,
+      "solar_data": false
+    }
+  }
 }
 ```
 
-This matches the frontend mock directly: `risk_factors` maps to the "Why is
-risk high?" breakdown cards, `forecast_12h` feeds the chart, and
-`ai_recommendation` is the personalized safety line.
+---
 
-## 🔌 Connecting Real FortyGuard Data
+## Confidence Score
 
-Right now `fortyguard_client.py` runs on **mock data** so the whole pipeline
-works immediately without waiting on API access.
+`confidence` reflects **data completeness**, not model accuracy.
 
-To switch to real FortyGuard data:
+| Signal | Weight |
+|--------|--------|
+| Current temperature | 0.30 |
+| Forecast available | 0.25 |
+| Historical baseline | 0.15 (+0.05 if std available) |
+| Environmental parameters | up to 0.15 |
+| Solar data | 0.10 |
 
-1. Open `fortyguard_client.py`
-2. Set `USE_MOCK = False`
-3. Fill in `FORTYGUARD_API_KEY` and `FORTYGUARD_BASE_URL`
-4. Adjust the request params / response parsing in each function to match
-   FortyGuard's actual field names (check the dashboard's API docs / Settings page)
+We say `"confidence: 0.91"` (completeness of evidence), **not** `"91% accurate"` (no validation dataset exists).
 
-**Nothing else needs to change** — `risk_engine.py` and `main.py` don't care
-where the numbers come from.
+---
 
-## 🧠 How the Risk Score (0-100) Works
+## Mock vs Live Data
 
-Three weighted factors, matching the frontend's factor-breakdown UI:
+| Setting | Behavior |
+|---------|----------|
+| `USE_MOCK = True` | Deterministic mock data seeded from coordinates (default) |
+| `USE_MOCK = False` | Real FortyGuard API (requires `FORTYGUARD_API_KEY`) |
 
-| Factor | Weight | What it measures |
-|---|---|---|
-| Temperature | 50% | Absolute severity, scaled 20°C→46°C = 0→100 |
-| Historical gap | 30% | How much hotter than usual for *this exact spot* |
-| Heat duration | 20% | Proximity to today's predicted peak |
+Mock data is:
+- **Deterministic**: same location always returns same result
+- **Labeled**: response includes `"data_source": "MOCK_DETERMINISTIC"`
+- **Realistic**: five scenario tiers covering all five risk levels
 
-Deliberately simple and explainable in one sentence to judges — no black-box
-ML, which keeps it technically defensible.
+---
 
-## 📁 Files
+## Coverage
 
+**United States only** (FortyGuard API requirement). Coordinates are validated before any API call. Non-US coordinates return HTTP 400.
+
+---
+
+## Tests
+
+```bash
+cd Back-End/heatshield_api
+pytest tests/ -v
 ```
-heatshield_api/
-├── main.py                # FastAPI app + the /api/heat-risk endpoint
-├── risk_engine.py          # Scoring logic + AI recommendation text
-├── fortyguard_client.py    # API client (mock + real FortyGuard calls)
-├── requirements.txt
-└── README.md
-```
 
-## ✅ Tested
+Test coverage:
+- 5-level classification boundaries
+- Thermal anchor interpolation
+- Historical anomaly (z-score + delta fallback)
+- Forecast persistence (true temporal analysis)
+- Peak window (contiguous segments, separated windows)
+- Empty forecast handling
+- Missing historical/environmental data
+- Solar present/absent
+- Safety floor behavior
+- Score always 0–100
+- Level always one of 5 valid values
+- Recommendations match risk context
+- API integration (deterministic mock)
 
-Endpoint verified working end-to-end with mock data — returns valid JSON,
-`/docs` Swagger UI loads correctly, CORS is open for frontend dev.
+---
+
+## Limitations
+
+1. US coverage only (FortyGuard API restriction)
+2. Mock mode when API key unavailable
+3. Solar GHI not fabricated — only used when real FortyGuard data provides it
+4. No spatial hotspot analysis without real FortyGuard heatmap integration
+5. Historical percentiles not fabricated — only shown when data provides them
+
+---
+
+## How to Explain This to Judges
+
+> "HeatShield uses explainable heat-risk intelligence rather than a black-box classifier. It combines current thermal severity (using anchor-point interpolation that accounts for heat index and humidity), local historical anomaly (via z-score detection), and forecast heat persistence (true temporal analysis of contiguous high-risk hours) into a transparent 0–100 risk score, then adds environmental and solar context when available.
+>
+> The scoring is deterministic and fully auditable. Every factor contribution is returned in the API response. Judges can ask 'Why is this location 78/100?' and the system answers: 'Because the heat index is 41°C, it is 4.6°C above its local baseline, and high-risk conditions are expected for 4 consecutive hours.'"
+
+---
+
+## API Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/heat-risk?lat=&lon=` | Full AI risk analysis |
+| `GET /api/nearby-safer?lat=&lon=` | Find cooler nearby location |
+| `POST /api/auth/register` | User registration |
+| `POST /api/auth/login` | User login |
+| `GET /api/auth/me` | Current user |
+| `POST /api/auth/logout` | Logout |
+| `GET /api/user/saved-locations` | List saved locations |
+| `POST /api/user/saved-locations` | Save a location |
+| `DELETE /api/user/saved-locations/{id}` | Delete saved location |
