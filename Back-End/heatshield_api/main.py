@@ -1,9 +1,16 @@
 """
 HeatShield API -- FortyGuard Hackathon 2026 | Team Nexio
 ==========================================================
-FastAPI backend with SQLite database user authentication, US-only FortyGuard
-API checks, HeatShield Explainable AI Heat Risk Engine, and nearby safer
-micro-zone detection.
+FastAPI backend with SQLite database user authentication, FortyGuard
+real-data integration, HeatShield Explainable AI Heat Risk Engine,
+and nearby safer micro-zone detection.
+
+Configuration (environment variables):
+    FORTYGUARD_API_KEY       - Your FortyGuard API key
+    FORTYGUARD_BASE_URL      - FortyGuard base URL (default: https://api.fortyguard.com/v1)
+    USE_MOCK                 - true/false (auto-detected if not set)
+    FORTYGUARD_POLL_INTERVAL - Seconds between polls (default: 3.0)
+    FORTYGUARD_TIMEOUT       - Max seconds to wait (default: 90.0)
 
 Run with:
     py -m uvicorn main:app --reload --port 8000
@@ -19,12 +26,19 @@ Endpoints:
     DEL  /api/user/saved-locations/{id}     -- delete a saved location
     GET  /api/heat-risk?lat=&lon=           -- AI heat risk analysis (MAIN)
     GET  /api/nearby-safer?lat=&lon=        -- find cooler nearby location
+    GET  /api/heatmap?lat=&lon=             -- hyper-local thermal heatmap
 """
 
+import os
+import logging
 from fastapi import FastAPI, Query, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Any
+
+# ── configure basic logging ──────────────────────────────────────────────
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("heatshield.main")
 
 from database import (
     init_db,
@@ -36,12 +50,15 @@ from database import (
     add_saved_location,
     delete_saved_location,
 )
+import fortyguard_client as _fg
 from fortyguard_client import (
     get_current_temperature,
     get_forecast_12h,
     get_historical_average,
     get_historical_data,
+    get_heatmap_data,
     is_in_us,
+    USE_MOCK,
 )
 from risk_engine import (
     HeatSnapshot,
@@ -58,6 +75,11 @@ from risk_engine import (
     SCORE_LABELS,
 )
 
+# ── CORS origins ─────────────────────────────────────────────────────────
+# Reads from CORS_ORIGINS env var (comma-separated) or defaults to wildcard.
+_cors_env = os.environ.get("CORS_ORIGINS", "").strip()
+_cors_origins = [o.strip() for o in _cors_env.split(",")] if _cors_env else ["*"]
+
 app = FastAPI(
     title="HeatShield API",
     description=(
@@ -67,21 +89,23 @@ app = FastAPI(
         "anomaly detection, forecast persistence analysis, and peak heat "
         "window identification. Model: heatshield-risk-v1."
     ),
-    version="2.1.0",
+    version="3.0.0",
 )
 
-# Enable CORS for React Frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 
 @app.on_event("startup")
 def on_startup():
     init_db()
+    mode = "MOCK (deterministic)" if USE_MOCK else "LIVE (FortyGuard real data)"
+    logger.info("HeatShield API started — data mode: %s", mode)
 
 
 # ===========================================================================
@@ -153,7 +177,7 @@ class HeatRiskResponse(BaseModel):
     peak_next_12h: dict
     forecast_12h: list[ForecastHour]
     ai_recommendation: str
-    # Extended fields (optional -- don't break existing frontend)
+    # Extended fields (optional -- do not break existing frontend)
     explainability: Optional[dict] = None
     persistence_detail: Optional[dict] = None
     data_source: Optional[str] = None
@@ -183,7 +207,7 @@ def register(req: RegisterRequest):
     if len(req.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
     try:
-        user = create_user(req.name, req.email, req.password)
+        create_user(req.name, req.email, req.password)
         auth_data = authenticate_user(req.email, req.password)
         return auth_data
     except ValueError as e:
@@ -248,7 +272,7 @@ def get_heat_risk(
     lon: float = Query(..., description="Longitude", examples=[-74.0060]),
 ):
     """
-    Given a US coordinate, returns the full HeatShield AI risk analysis:
+    Given a coordinate, returns the full HeatShield AI risk analysis:
       - 0-100 Heat Risk Score (heatshield-risk-v1 model)
       - 5-level risk classification (Low/Moderate/High/Very High/Extreme)
       - Current thermal severity analysis
@@ -260,6 +284,7 @@ def get_heat_risk(
       - Personalized safety recommendation
 
     Coverage: United States only (FortyGuard API requirement).
+    In MOCK mode, accepts all coordinates globally for GPS demo purposes.
     """
     if not is_in_us(lat, lon):
         raise HTTPException(
@@ -268,16 +293,31 @@ def get_heat_risk(
         )
 
     # ------------------------------------------------------------------
-    # 1. Fetch data from FortyGuard client
+    # 1. Fetch data from FortyGuard (real or deterministic mock)
     # ------------------------------------------------------------------
     try:
         current_data = get_current_temperature(lat, lon)
-        forecast_data = get_forecast_12h(lat, lon)
-        hist_data = get_historical_data(lat, lon)
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
+    except PermissionError as pe:
+        raise HTTPException(status_code=502, detail="FortyGuard API authentication failed. Check FORTYGUARD_API_KEY.")
+    except (TimeoutError, ConnectionError, RuntimeError) as e:
+        raise HTTPException(status_code=502, detail=f"FortyGuard data service is temporarily unavailable. ({type(e).__name__})")
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"FortyGuard API error: {e}")
+        logger.exception("Unexpected error fetching current temperature")
+        raise HTTPException(status_code=502, detail="FortyGuard data service encountered an unexpected error.")
+
+    try:
+        forecast_data = get_forecast_12h(lat, lon)
+    except Exception as e:
+        logger.warning("Forecast fetch failed (%s), proceeding with empty forecast", e)
+        forecast_data = []
+
+    try:
+        hist_data = get_historical_data(lat, lon)
+    except Exception as e:
+        logger.warning("Historical data fetch failed (%s), proceeding without baseline", e)
+        hist_data = {"historical_avg_c": None, "historical_std_c": None, "source": "UNAVAILABLE"}
 
     # ------------------------------------------------------------------
     # 2. Build engine input structures
@@ -291,11 +331,13 @@ def get_heat_risk(
         solar_ghi=current_data.get("solar_ghi"),
     )
 
+    # If historical_avg_c is None, pass None baseline (engine handles gracefully)
+    hist_avg = hist_data.get("historical_avg_c")
     baseline = HistoricalBaseline(
-        mean_c=hist_data["historical_avg_c"],
+        mean_c=hist_avg if hist_avg is not None else current_data["temp_c"],
         std_c=hist_data.get("historical_std_c"),
         percentile=hist_data.get("historical_percentile"),
-    )
+    ) if hist_avg is not None else None
 
     forecast_points = [
         ForecastPoint(
@@ -309,27 +351,25 @@ def get_heat_risk(
     ]
 
     # ------------------------------------------------------------------
-    # 3. Run the AI engine
+    # 3. Run the explainable AI engine
     # ------------------------------------------------------------------
     analysis = analyze_heat_risk(snapshot, baseline, forecast_points)
 
     # ------------------------------------------------------------------
     # 4. Determine feels_like_c
-    #    Priority: heat_index_c > apparent_temp_c > temp + 1.5 (fallback only)
+    #    Priority: real heat_index > real apparent_temp > raw temp
+    #    Do NOT add fabricated offsets to real values.
     # ------------------------------------------------------------------
     if current_data.get("heat_index_c") is not None:
         feels_like_c = round(current_data["heat_index_c"], 1)
     elif current_data.get("apparent_temp_c") is not None:
         feels_like_c = round(current_data["apparent_temp_c"], 1)
     else:
-        # Fallback: labeled as estimated, not real data
+        # Last resort estimated fallback (not real FortyGuard data)
         feels_like_c = round(current_data["temp_c"] + 1.5, 1)
 
     # ------------------------------------------------------------------
     # 5. Map engine output to frontend contract
-    #    - temperature = thermal severity (primary heat stress indicator)
-    #    - historical_gap = anomaly score (how unusual today is)
-    #    - heat_duration = persistence score (true temporal exposure)
     # ------------------------------------------------------------------
     risk_factors = RiskFactors(
         temperature=round(analysis.thermal_score),
@@ -337,15 +377,25 @@ def get_heat_risk(
         heat_duration=round(analysis.persistence_score),
     )
 
-    # vs_historical: add backward-compatible 'message' field
+    # vs_historical: ensure both 'message' and 'anomaly_description' are present
     vs_historical = dict(analysis.anomaly)
     if "anomaly_description" in vs_historical and "message" not in vs_historical:
         vs_historical["message"] = vs_historical["anomaly_description"]
+    if "message" not in vs_historical:
+        diff = vs_historical.get("diff", 0)
+        if diff > 0:
+            vs_historical["message"] = f"Current temperature is {abs(diff):.1f}°C above the local historical baseline."
+        elif diff < 0:
+            vs_historical["message"] = f"Current temperature is {abs(diff):.1f}°C below the local historical baseline."
+        else:
+            vs_historical["message"] = "Current temperature matches the local historical baseline."
     vs_historical["diff"] = vs_historical.get("diff", 0)
     vs_historical["is_unusual"] = vs_historical.get("is_unusual", False)
-    vs_historical["historical_average"] = vs_historical.get("historical_average") or round(baseline.mean_c, 1)
+    vs_historical["historical_average"] = vs_historical.get("historical_average") or round(
+        baseline.mean_c if baseline else current_data["temp_c"], 1
+    )
 
-    # peak_next_12h: ensure all fields the frontend needs exist
+    # peak_next_12h: ensure all fields the frontend needs
     peak = dict(analysis.peak_window) if analysis.peak_window else {}
     peak.setdefault("peak_temp", None)
     peak.setdefault("peak_time", None)
@@ -369,6 +419,22 @@ def get_heat_risk(
         for h in analysis.forecast_scored
     ]
 
+    # Determine data source honestly
+    raw_source = current_data.get("source", "UNKNOWN")
+    if raw_source == "MOCK_DETERMINISTIC":
+        data_source = "MOCK_DETERMINISTIC"
+    elif raw_source == "FORTYGUARD_LIVE":
+        # Check if hist was unavailable
+        if hist_data.get("source") == "UNAVAILABLE":
+            data_source = "FORTYGUARD_LIVE_PARTIAL"
+        else:
+            data_source = "FORTYGUARD_LIVE"
+    else:
+        data_source = "UNKNOWN"
+
+    # historical_avg_c to show in response
+    historical_avg_display = round(baseline.mean_c, 1) if baseline else round(current_data["temp_c"], 1)
+
     return HeatRiskResponse(
         location={"lat": lat, "lon": lon},
         current_temp_c=current_data["temp_c"],
@@ -379,7 +445,7 @@ def get_heat_risk(
         risk_label=analysis.risk_label,
         risk_emoji=analysis.risk_emoji,
         risk_factors=risk_factors,
-        historical_avg_c=round(baseline.mean_c, 1),
+        historical_avg_c=historical_avg_display,
         vs_historical=vs_historical,
         peak_next_12h=peak,
         forecast_12h=forecast_12h,
@@ -393,7 +459,7 @@ def get_heat_risk(
                 "longest_continuous_high_risk_hours", 0
             ),
         },
-        data_source="MOCK_DETERMINISTIC" if current_data.get("source") == "MOCK_DETERMINISTIC" else "FORTYGUARD_LIVE",
+        data_source=data_source,
     )
 
 
@@ -409,8 +475,12 @@ def get_nearby_safer(
     radius_m: float = Query(300, description="Search radius in meters", ge=50, le=2000),
 ):
     """
-    Finds the coolest nearby point within `radius_m` meters by sampling
-    8 directions around the given US coordinate.
+    Finds the coolest nearby point within radius_m meters by sampling
+    8 directions around the given coordinate.
+
+    Note: In mock mode, returns a realistic deterministic result.
+    In live mode, temperatures are derived from FortyGuard heatmap data.
+    The data_source field in the nearby result reflects the actual source.
     """
     if not is_in_us(lat, lon):
         raise HTTPException(
@@ -423,13 +493,55 @@ def get_nearby_safer(
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"FortyGuard API error: {e}")
+        logger.warning("nearby-safer error: %s", e)
+        raise HTTPException(status_code=502, detail="Unable to compute nearby safer location.")
 
     maps_url = (
         f"https://www.google.com/maps/dir/?api=1"
         f"&destination={result['lat']},{result['lon']}"
     )
     return SaferNearbyResponse(**result, maps_url=maps_url)
+
+
+# ===========================================================================
+#  HEATMAP ENDPOINT — hyper-local thermal intelligence
+# ===========================================================================
+
+
+@app.get("/api/heatmap")
+def get_heatmap(
+    lat: float = Query(..., description="Latitude"),
+    lon: float = Query(..., description="Longitude"),
+):
+    """
+    Returns a hyper-local thermal heatmap for the area surrounding the
+    given coordinate.
+
+    Powered by FortyGuard's high-resolution thermal intelligence.
+    Response includes GeoJSON map_data (if available) and temperature stats.
+    """
+    if not is_in_us(lat, lon):
+        raise HTTPException(
+            status_code=400,
+            detail="This service is currently available only in the United States.",
+        )
+
+    try:
+        result = get_heatmap_data(lat, lon)
+    except PermissionError:
+        raise HTTPException(status_code=502, detail="FortyGuard API authentication failed.")
+    except (TimeoutError, RuntimeError) as e:
+        raise HTTPException(status_code=502, detail=f"Heatmap service temporarily unavailable. ({type(e).__name__})")
+    except Exception as e:
+        logger.exception("Unexpected heatmap error")
+        raise HTTPException(status_code=502, detail="Heatmap service encountered an unexpected error.")
+
+    return {
+        "location": {"lat": lat, "lon": lon},
+        "map_data": result.get("map_data"),
+        "stats": result.get("stats_data"),
+        "source": result.get("source", "UNKNOWN"),
+    }
 
 
 # ===========================================================================
@@ -441,8 +553,9 @@ def get_nearby_safer(
 def root():
     return {
         "status": "HeatShield API is running",
-        "version": "2.1.0",
+        "version": "3.0.0",
         "model": "heatshield-risk-v1",
+        "data_mode": "MOCK_DETERMINISTIC" if USE_MOCK else "FORTYGUARD_LIVE",
         "docs": "/docs",
         "disclaimer": (
             "HeatShield provides heat-risk decision support and does not "
@@ -456,5 +569,6 @@ def root():
             "/api/user/saved-locations",
             "/api/heat-risk?lat=40.7128&lon=-74.0060",
             "/api/nearby-safer?lat=40.7128&lon=-74.0060&radius_m=300",
+            "/api/heatmap?lat=40.7128&lon=-74.0060",
         ],
     }
