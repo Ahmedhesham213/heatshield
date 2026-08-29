@@ -53,10 +53,12 @@ FORTYGUARD_TIMEOUT = 15.0        # max seconds to wait for result
 
 def is_in_us(lat: float, lon: float) -> bool:
     """
-    Validates whether given coordinates fall within the United States
-    (Contiguous US, Alaska, Hawaii, Puerto Rico / US Virgin Islands).
-    FortyGuard API is restricted to US coverage.
+    Validates whether given coordinates fall within the United States.
+    When USE_MOCK is True (demo/hackathon mode), all global coordinates
+    are supported so device GPS works anywhere in the world.
     """
+    if USE_MOCK:
+        return True
     # Contiguous US
     if 24.0 <= lat <= 50.0 and -125.0 <= lon <= -66.0:
         return True

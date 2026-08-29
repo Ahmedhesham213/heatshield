@@ -114,6 +114,106 @@ export function getRiskTheme(level: string): RiskTheme {
   return THEMES[normalizeLevel(level)] ?? THEMES.unknown
 }
 
+export type TempUnit = 'C' | 'F'
+
+export function celsiusToFahrenheit(c: number): number {
+  return c * 9 / 5 + 32
+}
+
+export function formatTempUnit(celsius: number | undefined | null, unit: TempUnit = 'C', digits = 1): string {
+  if (celsius === undefined || celsius === null || isNaN(celsius)) return '--'
+  if (unit === 'F') {
+    return `${celsiusToFahrenheit(celsius).toFixed(digits)}°F`
+  }
+  return `${celsius.toFixed(digits)}°C`
+}
+
+export type ActivityProfile = {
+  id: string
+  title: string
+  icon: string
+  riskMultiplier: number
+  hydrationIntervalMins: number
+  restIntervalMins: number
+  guidance: string
+}
+
+export const ACTIVITY_PROFILES: Record<string, ActivityProfile> = {
+  worker: {
+    id: 'worker',
+    title: 'Outdoor Worker',
+    icon: '🏗️',
+    riskMultiplier: 1.2,
+    hydrationIntervalMins: 15,
+    restIntervalMins: 45,
+    guidance: 'Heavy physical labor increases metabolic heat load. Mandate shade breaks every 45 minutes.',
+  },
+  delivery: {
+    id: 'delivery',
+    title: 'Delivery Driver',
+    icon: '📦',
+    riskMultiplier: 1.15,
+    hydrationIntervalMins: 20,
+    restIntervalMins: 60,
+    guidance: 'Frequent vehicle exit/entry in vehicle cabins causes heat spikes. Keep AC active.',
+  },
+  pedestrian: {
+    id: 'pedestrian',
+    title: 'Pedestrian',
+    icon: '🚶',
+    riskMultiplier: 1.0,
+    hydrationIntervalMins: 30,
+    restIntervalMins: 60,
+    guidance: 'Walk on shaded sidewalks when available to avoid radiant surface heat from asphalt.',
+  },
+  runner: {
+    id: 'runner',
+    title: 'Runner / Athlete',
+    icon: '🏃',
+    riskMultiplier: 1.3,
+    hydrationIntervalMins: 15,
+    restIntervalMins: 30,
+    guidance: 'High aerobic strain accelerates core temperature rise. Shift runs to early morning.',
+  },
+  cyclist: {
+    id: 'cyclist',
+    title: 'Cyclist',
+    icon: '🚴',
+    riskMultiplier: 1.1,
+    hydrationIntervalMins: 20,
+    restIntervalMins: 45,
+    guidance: 'Air airflow aids cooling, but direct solar exposure remains dangerous above 35°C.',
+  },
+  student: {
+    id: 'student',
+    title: 'Student / Campus',
+    icon: '🎓',
+    riskMultiplier: 0.95,
+    hydrationIntervalMins: 30,
+    restIntervalMins: 60,
+    guidance: 'Use covered campus walkways and remain hydrated between outdoor class transitions.',
+  },
+  walking: {
+    id: 'walking',
+    title: 'Pedestrian / Walking',
+    icon: '🚶',
+    riskMultiplier: 1.0,
+    hydrationIntervalMins: 30,
+    restIntervalMins: 60,
+    guidance: 'Walk on shaded sidewalks when available to avoid radiant surface heat from asphalt.',
+  },
+}
+
+export function getActivityProfile(id: string | undefined): ActivityProfile {
+  if (!id) return ACTIVITY_PROFILES.pedestrian
+  return (
+    ACTIVITY_PROFILES[id] ??
+    ACTIVITY_PROFILES[id.toLowerCase()] ??
+    ACTIVITY_PROFILES.pedestrian
+  )
+}
+
+
 export const RISK_BANDS = [
   { level: 'low', min: 0, max: 30, color: '#4ade80', label: 'Low' },
   { level: 'moderate', min: 30, max: 55, color: '#facc15', label: 'Moderate' },
@@ -129,3 +229,5 @@ export const TEMP_RISK_BANDS = [
   { label: 'Very High', tempMin: 38, tempMax: 42, color: '#f87171' },
   { label: 'Extreme', tempMin: 42, tempMax: 60, color: '#ef4444' },
 ] as const
+
+

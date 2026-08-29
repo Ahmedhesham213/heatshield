@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from 'react'
 import {
   Activity,
+  Bell,
+  Calendar,
   ChevronDown,
   Compass,
   LogOut,
@@ -10,12 +12,14 @@ import {
   Menu,
   Navigation,
   ShieldCheck,
+  Sliders,
   User,
   Wind,
   X,
 } from 'lucide-react'
 import ThemeToggle from '@/components/theme-toggle'
 import { useAuth } from '@/hooks/use-auth'
+import { ACTIVITY_PROFILES, getActivityProfile, TempUnit } from '@/utils/risk-theme'
 
 export const US_PRESET_CITIES = [
   { name: 'New York City, NY', lat: 40.7128, lon: -74.0060 },
@@ -28,23 +32,39 @@ export const US_PRESET_CITIES = [
 ]
 
 const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Dashboard', icon: Activity },
+  { id: 'dashboard', label: 'Home', icon: Activity },
   { id: 'forecast', label: '12h Forecast', icon: Wind },
   { id: 'map', label: 'Heat Map', icon: Compass },
-  { id: 'safety', label: 'Safety Tips', icon: ShieldCheck },
+  { id: 'protect-me', label: 'Protect', icon: ShieldCheck },
+  { id: 'planner', label: 'Planner', icon: Calendar },
+  { id: 'routes', label: 'Routes', icon: Navigation },
+  { id: 'compare', label: 'Compare', icon: Compass },
+  { id: 'alerts', label: 'Alerts', icon: Bell },
+  { id: 'safety', label: 'Safety', icon: ShieldCheck },
 ]
 
 export function Navbar({
   selectedCityName,
   onSelectCity,
   onRequestGps,
+  tempUnit,
+  setTempUnit,
+  selectedActivity,
+  setSelectedActivity,
+  onOpenSettings,
 }: {
   selectedCityName: string
   onSelectCity: (lat: number, lon: number, name: string) => void
   onRequestGps: () => void
+  tempUnit: TempUnit
+  setTempUnit: (unit: TempUnit) => void
+  selectedActivity: string
+  setSelectedActivity: (act: string) => void
+  onOpenSettings: () => void
 }) {
   const { user, logout } = useAuth()
   const [cityDropdownOpen, setCityDropdownOpen] = useState(false)
+  const [activityDropdownOpen, setActivityDropdownOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [tabletNavOpen, setTabletNavOpen] = useState(false)
   const [activeSection, setActiveSection] = useState('dashboard')
@@ -78,6 +98,8 @@ export function Navbar({
     }
   }
 
+  const currentActivityProfile = getActivityProfile(selectedActivity)
+
   return (
     <>
       <header
@@ -102,13 +124,13 @@ export function Navbar({
                 HeatShield
               </span>
               <span className="text-[9px] font-extrabold tracking-widest uppercase mt-0.5" style={{ color: 'var(--accent-cyan)' }}>
-                Climate Intelligence
+                Climate Intelligence AI
               </span>
             </div>
           </a>
 
           {/* Desktop Navigation */}
-          <nav className="hidden lg:flex lg:items-center lg:gap-1">
+          <nav className="hidden xl:flex xl:items-center xl:gap-1">
             {NAV_ITEMS.map((item) => {
               const isActive = activeSection === item.id
               return (
@@ -116,7 +138,7 @@ export function Navbar({
                   key={item.id}
                   href={`#${item.id}`}
                   onClick={(e) => handleNavClick(e, item.id)}
-                  className="relative rounded-lg px-3.5 py-2 text-xs font-semibold transition-all"
+                  className="relative rounded-lg px-3 py-1.5 text-xs font-semibold transition-all"
                   style={{
                     color: isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)',
                     background: isActive ? 'rgba(56,189,248,0.1)' : 'transparent',
@@ -125,7 +147,7 @@ export function Navbar({
                   {item.label}
                   {isActive && (
                     <span
-                      className="absolute bottom-0 left-3 right-3 h-0.5 rounded-full"
+                      className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full"
                       style={{ background: 'var(--accent-cyan)' }}
                     />
                   )}
@@ -136,21 +158,84 @@ export function Navbar({
 
           {/* Right Controls */}
           <div className="flex items-center gap-2">
+            {/* Quick Unit Toggle */}
+            <button
+              onClick={() => setTempUnit(tempUnit === 'C' ? 'F' : 'C')}
+              className="flex items-center justify-center rounded-xl px-2.5 py-1.5 text-xs font-black transition-all border"
+              style={{
+                background: 'var(--bg-elevated)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--accent-cyan)',
+              }}
+              title="Toggle Temperature Unit (°C / °F)"
+            >
+              °{tempUnit}
+            </button>
+
+            {/* Activity Profile Selector */}
+            <div className="relative hidden sm:block">
+              <button
+                type="button"
+                onClick={() => setActivityDropdownOpen((v) => !v)}
+                className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all border"
+                style={{
+                  background: 'var(--bg-elevated)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                <span>{currentActivityProfile.icon}</span>
+                <span className="truncate max-w-[90px]">{currentActivityProfile.title}</span>
+                <ChevronDown className="size-3" style={{ color: 'var(--text-tertiary)' }} />
+              </button>
+
+              {activityDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setActivityDropdownOpen(false)} />
+                  <div
+                    className="absolute right-0 top-10 z-50 w-56 rounded-2xl p-2 shadow-2xl animate-in fade-in-50 zoom-in-95"
+                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border-default)' }}
+                  >
+                    <p className="px-2.5 py-1.5 text-[9px] font-extrabold uppercase tracking-widest" style={{ color: 'var(--text-tertiary)' }}>
+                      Personal Safety Mode
+                    </p>
+                    {Object.values(ACTIVITY_PROFILES).map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          setSelectedActivity(p.id)
+                          setActivityDropdownOpen(false)
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-xs font-medium transition-all"
+                        style={{
+                          background: selectedActivity === p.id ? 'rgba(56,189,248,0.12)' : 'transparent',
+                          color: selectedActivity === p.id ? 'var(--accent-cyan)' : 'var(--text-primary)',
+                        }}
+                      >
+                        <span className="text-base">{p.icon}</span>
+                        <span className="truncate">{p.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
             {/* Location Selector */}
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setCityDropdownOpen((v) => !v)}
-                className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all"
+                className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all border"
                 style={{
                   background: 'var(--bg-elevated)',
-                  border: '1px solid var(--border-subtle)',
+                  borderColor: 'var(--border-subtle)',
                   color: 'var(--text-primary)',
                 }}
                 aria-label="Select US Location"
               >
                 <MapPin className="size-3.5 flex-shrink-0" style={{ color: 'var(--accent-cyan)' }} />
-                <span className="truncate max-w-[110px] sm:max-w-[140px]">{selectedCityName}</span>
+                <span className="truncate max-w-[100px] sm:max-w-[130px]">{selectedCityName}</span>
                 <ChevronDown className="size-3" style={{ color: 'var(--text-tertiary)' }} />
               </button>
 
@@ -204,6 +289,16 @@ export function Navbar({
               )}
             </div>
 
+            {/* Settings trigger */}
+            <button
+              onClick={onOpenSettings}
+              className="grid size-8 place-items-center rounded-xl transition-all border"
+              style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+              title="Settings"
+            >
+              <Sliders className="size-4" />
+            </button>
+
             <ThemeToggle />
 
             {/* User Profile */}
@@ -251,7 +346,7 @@ export function Navbar({
 
             {/* Tablet Menu Button */}
             <button
-              className="hidden md:grid lg:hidden size-9 place-items-center rounded-xl transition-all"
+              className="hidden md:grid xl:hidden size-9 place-items-center rounded-xl transition-all"
               style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}
               onClick={() => setTabletNavOpen((prev) => !prev)}
               aria-label="Toggle Navigation Menu"
@@ -264,7 +359,7 @@ export function Navbar({
         {/* Tablet Drawer */}
         {tabletNavOpen && (
           <div
-            className="hidden md:block lg:hidden p-4 border-b animate-in slide-in-from-top-2"
+            className="hidden md:block xl:hidden p-4 border-b animate-in slide-in-from-top-2"
             style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
           >
             <nav className="flex flex-col gap-1 max-w-sm mx-auto">
@@ -294,11 +389,16 @@ export function Navbar({
 
       {/* Mobile Bottom Thumb Navigation Bar */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-40 md:hidden pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] px-3 shadow-2xl"
+        className="fixed bottom-0 left-0 right-0 z-40 md:hidden pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] px-2 shadow-2xl"
         style={{ background: 'var(--bg-navbar)', backdropFilter: 'blur(20px)', borderTop: '1px solid var(--border-subtle)' }}
       >
-        <div className="grid grid-cols-4 gap-1">
-          {NAV_ITEMS.map((item) => {
+        <div className="grid grid-cols-5 gap-1">
+          {[
+            { id: 'dashboard', label: 'Home', icon: Activity },
+            { id: 'map', label: 'Map', icon: Compass },
+            { id: 'forecast', label: 'Forecast', icon: Wind },
+            { id: 'protect-me', label: 'Protect', icon: ShieldCheck },
+          ].map((item) => {
             const isActive = activeSection === item.id
             const Icon = item.icon
             return (
@@ -306,22 +406,96 @@ export function Navbar({
                 key={item.id}
                 href={`#${item.id}`}
                 onClick={(e) => handleNavClick(e, item.id)}
-                className="relative flex flex-col items-center justify-center py-2 rounded-xl text-[10px] font-bold transition-all min-h-[48px]"
+                className="relative flex flex-col items-center justify-center py-1.5 rounded-xl text-[9px] font-bold transition-all min-h-[46px]"
                 style={{
                   color: isActive ? 'var(--accent-cyan)' : 'var(--text-tertiary)',
                   background: isActive ? 'rgba(56,189,248,0.12)' : 'transparent',
                 }}
               >
-                <Icon className="size-5 mb-0.5" />
-                <span>{item.label}</span>
+                <Icon className="size-4 mb-0.5" />
+                <span className="truncate max-w-[50px]">{item.label}</span>
                 {isActive && (
-                  <span className="absolute top-1.5 right-3 size-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  <span className="absolute top-1 right-2 size-1.5 rounded-full bg-cyan-400 animate-pulse" />
                 )}
               </a>
             )
           })}
+
+          {/* More Drawer Button */}
+          <button
+            type="button"
+            onClick={() => setTabletNavOpen(prev => !prev)}
+            className="relative flex flex-col items-center justify-center py-1.5 rounded-xl text-[9px] font-bold transition-all min-h-[46px]"
+            style={{
+              color: tabletNavOpen ? 'var(--accent-cyan)' : 'var(--text-tertiary)',
+              background: tabletNavOpen ? 'rgba(56,189,248,0.12)' : 'transparent',
+            }}
+          >
+            <Menu className="size-4 mb-0.5" />
+            <span>More</span>
+          </button>
         </div>
       </div>
+
+      {/* Mobile More Drawer Overlay */}
+      {tabletNavOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex flex-col justify-end bg-black/60 backdrop-blur-sm animate-in fade-in-50">
+          <div
+            className="w-full rounded-t-3xl p-5 border-t shadow-2xl animate-in slide-in-from-bottom-5 max-h-[80vh] overflow-y-auto"
+            style={{ background: 'var(--bg-card)', borderColor: 'var(--border-default)' }}
+          >
+            <div className="flex items-center justify-between pb-3 mb-3 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="size-5 text-sky-400" />
+                <h3 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>HeatShield Features</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTabletNavOpen(false)}
+                className="p-1 rounded-xl"
+                style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {[
+                { id: 'planner', label: 'Smart Planner', icon: Calendar, desc: 'Plan activities safely' },
+                { id: 'routes', label: 'Safe Routes', icon: Navigation, desc: 'Cooler navigation' },
+                { id: 'compare', label: 'Compare Locations', icon: Compass, desc: 'Find safer spots' },
+                { id: 'alerts', label: 'Alert Center', icon: Bell, desc: 'Recent heat warnings' },
+                { id: 'safety', label: 'Pre-Departure Safety', icon: ShieldCheck, desc: 'Hydration checklist' },
+              ].map((item) => {
+                const Icon = item.icon
+                return (
+                  <a
+                    key={item.id}
+                    href={`#${item.id}`}
+                    onClick={(e) => handleNavClick(e, item.id)}
+                    className="flex flex-col p-3 rounded-2xl text-left transition-all border"
+                    style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}
+                  >
+                    <Icon className="size-4 text-sky-400 mb-1.5" />
+                    <span className="font-bold text-xs" style={{ color: 'var(--text-primary)' }}>{item.label}</span>
+                    <span className="text-[10px] truncate" style={{ color: 'var(--text-tertiary)' }}>{item.desc}</span>
+                  </a>
+                )
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => { setTabletNavOpen(false); onOpenSettings() }}
+              className="flex w-full items-center justify-center gap-2 py-3 rounded-2xl text-xs font-bold transition-all border"
+              style={{ background: 'rgba(56,189,248,0.1)', borderColor: 'rgba(56,189,248,0.3)', color: 'var(--accent-cyan)' }}
+            >
+              <Sliders className="size-4" />
+              Settings (°C / °F & Theme)
+            </button>
+          </div>
+        </div>
+      )}
     </>
   )
 }

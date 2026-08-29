@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   ArrowRight,
   BrainCircuit,
+  Calendar,
   CheckCircle2,
   ChevronDown,
   Clock,
@@ -14,16 +15,21 @@ import {
   Crosshair,
   Droplets,
   ExternalLink,
+  Flame,
   Info,
   Loader2,
   MapPin,
   Navigation,
   RefreshCw,
   Route,
+  ShieldAlert,
   ShieldCheck,
+  Sliders,
+  Snowflake,
   Sun,
   Thermometer,
   TrendingUp,
+  Trophy,
   Wind,
   Zap,
 } from 'lucide-react'
@@ -38,8 +44,17 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { GamificationBadge } from '@/components/gamification-badge'
+import { HeatAlertsCenter } from '@/components/heat-alerts-center'
+import { HeatRouteCalculator } from '@/components/heat-route-calculator'
+import { HeatWarningToast } from '@/components/heat-warning-toast'
+import { LocationCompare } from '@/components/location-compare'
 import { Navbar, US_PRESET_CITIES } from '@/components/navbar'
+import { OutdoorPlanner } from '@/components/outdoor-planner'
+import { ProtectMePanel } from '@/components/protect-me-panel'
+import { SettingsModal } from '@/components/settings-modal'
 import { useGeolocation } from '@/hooks/use-geolocation'
+import { useLiveHeatProtection } from '@/hooks/use-live-heat-protection'
 import {
   getHeatRisk,
   getNearbySafer,
@@ -47,7 +62,15 @@ import {
   type HeatRiskResponse,
   type NearbySaferResponse,
 } from '@/services/api'
-import { getRiskTheme, TEMP_RISK_BANDS } from '@/utils/risk-theme'
+import {
+  ACTIVITY_PROFILES,
+  getActivityProfile,
+  celsiusToFahrenheit,
+  formatTempUnit,
+  getRiskTheme,
+  TEMP_RISK_BANDS,
+  TempUnit,
+} from '@/utils/risk-theme'
 
 const HeatMap = dynamic(
   () => import('@/components/heat-map').then((module) => module.HeatMap),
@@ -64,11 +87,6 @@ const BOOT_PHASES = [
   { id: 4, delay: 1380, label: 'Computing AI risk score…' },
   { id: 5, delay: 1680, label: 'ANALYSIS COMPLETE' },
 ] as const
-
-// ── HELPERS ────────────────────────────────────────────────────────
-function formatTemperature(value: number | undefined, digits = 1): string {
-  return `${(value ?? 0).toFixed(digits)}°C`
-}
 
 function formatDiff(diff: number): string {
   return diff >= 0 ? `+${diff.toFixed(1)}°C` : `${diff.toFixed(1)}°C`
@@ -141,14 +159,14 @@ function RiskBadge({ level, label }: { level: string; label: string }) {
   )
 }
 
-// ── ANIMATED RISK RING ─────────────────────────────────────────────
+// ── ANIMATED RISK RING / GAUGE ─────────────────────────────────────
 function RiskRing({ score, level, animated }: { score: number; level: string; animated: boolean }) {
   const displayScore = useCountUp(score, 1000, animated)
   const ringPct = animated ? (displayScore / 100) * 100 : 0
   const theme = getRiskTheme(level)
 
   return (
-    <div className="relative flex items-center justify-center" style={{ width: 160, height: 160 }}>
+    <div className="relative flex items-center justify-center" style={{ width: 170, height: 170 }}>
       {/* Outer ring */}
       <div
         className="absolute inset-0 rounded-full transition-all duration-300"
@@ -159,10 +177,10 @@ function RiskRing({ score, level, animated }: { score: number; level: string; an
       />
       {/* Inner circle */}
       <div
-        className="relative flex flex-col items-center justify-center rounded-full"
+        className="relative flex flex-col items-center justify-center rounded-full shadow-2xl"
         style={{
-          width: 122,
-          height: 122,
+          width: 132,
+          height: 132,
           background: 'var(--bg-surface)',
           border: '2px solid var(--border-subtle)',
         }}
@@ -174,7 +192,7 @@ function RiskRing({ score, level, animated }: { score: number; level: string; an
           {displayScore}
         </div>
         <div className="text-[9px] font-bold tracking-widest mt-1" style={{ color: 'var(--text-tertiary)' }}>
-          / 100
+          HEAT RISK / 100
         </div>
       </div>
     </div>
@@ -186,7 +204,7 @@ function LiveDot({ elapsed, confidence, dataSource }: { elapsed: number; confide
   return (
     <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold" style={{ color: 'var(--text-tertiary)' }}>
       <span className="flex items-center gap-1.5">
-        <span className="size-1.5 rounded-full bg-emerald-400 animate-live-pulse" />
+        <span className="size-2 rounded-full bg-emerald-400 animate-live-pulse" />
         <span style={{ color: 'var(--text-secondary)' }}>LIVE</span>
       </span>
       <span>Updated {elapsed}s ago</span>
@@ -210,112 +228,128 @@ function BootOverlay({ phase, heatData }: { phase: number; heatData: HeatRiskRes
   const score = heatData?.current.riskScore ?? 0
   const level = heatData?.current.riskLabel ?? 'Analyzing…'
   const theme = getRiskTheme(heatData?.current.riskLevel ?? 'unknown')
-  const progress = (phase / (BOOT_PHASES.length - 1)) * 100
+  const progress = Math.min(100, Math.round(((phase + 1) / BOOT_PHASES.length) * 100))
+
+  const currentStepLabel = BOOT_PHASES[Math.min(Math.max(0, phase), BOOT_PHASES.length - 1)]?.label ?? 'Initializing HeatShield…'
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 select-none transition-colors duration-200"
       style={{ background: 'var(--bg-base)' }}
     >
+      {/* Background Radial Glow */}
       <div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none rounded-full blur-3xl opacity-30"
         style={{
-          width: 600,
-          height: 600,
-          background: 'radial-gradient(circle, rgba(251,146,60,0.08) 0%, transparent 70%)',
+          width: '80vw',
+          maxWidth: 400,
+          height: '80vw',
+          maxHeight: 400,
+          background: 'radial-gradient(circle, rgba(56,189,248,0.3) 0%, rgba(249,115,22,0.1) 60%, transparent 100%)',
         }}
       />
 
-      <div className="animate-boot flex items-center gap-3 mb-16" style={{ animationDelay: '0ms' }}>
-        <div
-          className="grid size-12 place-items-center rounded-2xl"
-          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)' }}
-        >
-          <ShieldCheck className="size-6 text-sky-400" />
-        </div>
-        <div>
-          <p className="text-xl font-bold tracking-tight" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>HeatShield</p>
-          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-tertiary)' }}>
-            Climate Intelligence
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-4 text-center min-h-[200px] w-full max-w-xs px-6">
-        {phase >= 0 && (
-          <p
-            className="animate-boot text-sm font-mono"
-            style={{ color: 'var(--text-secondary)', animationDelay: '80ms' }}
+      {/* Main Glass Card */}
+      <div
+        className="relative z-10 flex flex-col items-center max-w-xs sm:max-w-sm w-full p-6 sm:p-8 rounded-3xl text-center border shadow-2xl backdrop-blur-2xl transition-colors duration-200"
+        style={{
+          background: 'var(--bg-card)',
+          borderColor: 'var(--border-subtle)',
+          color: 'var(--text-primary)',
+        }}
+      >
+        {/* Brand Icon & Header */}
+        <div className="flex items-center gap-3 mb-6">
+          <div
+            className="grid size-11 place-items-center rounded-2xl shadow-md"
+            style={{ background: 'rgba(56,189,248,0.12)', border: '1px solid rgba(56,189,248,0.3)' }}
           >
-            {BOOT_PHASES[Math.min(phase, BOOT_PHASES.length - 1)].label}
-          </p>
-        )}
-
-        {phase >= 1 && temp !== undefined && (
-          <div className="animate-boot" style={{ animationDelay: '0ms' }}>
-            <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-tertiary)' }}>
-              Current Temperature
+            <ShieldCheck className="size-6 text-sky-400" />
+          </div>
+          <div className="text-left">
+            <p className="text-lg font-black tracking-tight" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+              HeatShield AI
             </p>
-            <p className="font-mono text-5xl font-black" style={{ color: 'var(--text-primary)', letterSpacing: '-0.04em' }}>
-              {formatTemperature(temp)}
+            <p className="text-[9px] font-extrabold uppercase tracking-widest text-sky-400">
+              Climate Safety Scanner
             </p>
           </div>
-        )}
+        </div>
 
-        {phase >= 2 && diff !== undefined && (
-          <div className="animate-boot" style={{ animationDelay: '0ms' }}>
-            <p className="text-sm font-bold" style={{ color: diff >= 0 ? '#fb923c' : '#4ade80' }}>
-              {formatDiff(diff)} vs historical baseline
-            </p>
-          </div>
-        )}
-
-        {phase >= 3 && peakTemp !== undefined && (
-          <div className="animate-boot" style={{ animationDelay: '0ms' }}>
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              Peak forecast{' '}
-              <span style={{ color: '#fb923c', fontWeight: 700 }}>{formatTemperature(peakTemp)}</span>
-              {' '}at{' '}
-              <span style={{ color: '#fb923c', fontWeight: 700 }}>{heatData?.peak.time}</span>
-            </p>
-          </div>
-        )}
-
-        {phase >= 4 && score > 0 && (
-          <div className="animate-boot mt-3" style={{ animationDelay: '0ms' }}>
-            <div
-              className="inline-flex items-center gap-3 px-5 py-2.5 rounded-2xl text-base font-bold"
-              style={{
-                color: theme.ringColor,
-                background: `${theme.ringColor}15`,
-                border: `1px solid ${theme.ringColor}35`,
-              }}
-            >
-              {level.toUpperCase()} · {score}/100
-            </div>
-          </div>
-        )}
-
-        {phase >= 5 && (
-          <div className="animate-boot" style={{ animationDelay: '0ms' }}>
-            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-tertiary)' }}>
-              Opening dashboard ↓
-            </p>
-          </div>
-        )}
-      </div>
-
-      <div className="mt-12 w-40 h-px rounded-full overflow-hidden" style={{ background: 'var(--border-subtle)' }}>
+        {/* Phase Status Pill */}
         <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{ width: `${progress}%`, background: 'var(--accent-cyan)' }}
-        />
+          className="mb-5 px-3.5 py-1.5 rounded-full border text-[11px] font-mono font-semibold flex items-center gap-2 max-w-full truncate"
+          style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
+        >
+          <Loader2 className="size-3.5 text-sky-400 animate-spin flex-shrink-0" />
+          <span className="truncate">{currentStepLabel}</span>
+        </div>
+
+        {/* Fixed Height Data Container — prevents layout shift & height explosion on mobile */}
+        <div
+          className="w-full h-32 flex flex-col items-center justify-center rounded-2xl border p-4 transition-all duration-300"
+          style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}
+        >
+          {phase < 1 || temp === undefined ? (
+            <div className="flex flex-col items-center space-y-2">
+              <div className="size-6 rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
+              <p className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>Reading Satellite & Thermal Sensors…</p>
+            </div>
+          ) : (
+            <div className="space-y-1.5 animate-fade-in w-full">
+              <p className="text-[9px] font-extrabold uppercase tracking-widest" style={{ color: 'var(--text-tertiary)' }}>
+                Current Outdoor Temperature
+              </p>
+              <p className="font-mono text-3xl sm:text-4xl font-black tracking-tight" style={{ color: 'var(--text-primary)' }}>
+                {formatTempUnit(temp, 'C')}
+              </p>
+
+              {diff !== undefined && (
+                <p className="text-xs font-bold" style={{ color: diff >= 0 ? '#fb923c' : '#4ade80' }}>
+                  {formatDiff(diff)} vs historical baseline
+                </p>
+              )}
+
+              {phase >= 4 && score > 0 && (
+                <div className="pt-1">
+                  <span
+                    className="inline-block px-3 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider"
+                    style={{
+                      color: theme.ringColor,
+                      background: `${theme.ringColor}20`,
+                      border: `1px solid ${theme.ringColor}40`,
+                    }}
+                  >
+                    {level} · {score}/100 Risk
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Progress Bar & Counter */}
+        <div className="mt-6 w-full space-y-2">
+          <div className="flex items-center justify-between text-[10px] font-mono font-bold" style={{ color: 'var(--text-tertiary)' }}>
+            <span>CALIBRATING</span>
+            <span>{progress}%</span>
+          </div>
+          <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border-subtle)' }}>
+            <div
+              className="h-full rounded-full transition-all duration-300 ease-out"
+              style={{
+                width: `${progress}%`,
+                background: 'linear-gradient(90deg, #38bdf8 0%, #fb923c 100%)',
+              }}
+            />
+          </div>
+        </div>
       </div>
     </div>
   )
 }
 
-// ── SKELETON ───────────────────────────────────────────────────────
+
 function Skel({ className = '' }: { className?: string }) {
   return (
     <div
@@ -326,10 +360,8 @@ function Skel({ className = '' }: { className?: string }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// SECTION COMPONENTS
+// HERO SECTION
 // ═══════════════════════════════════════════════════════════════════
-
-// ── HERO SECTION ───────────────────────────────────────────────────
 function HeroSection({
   heatData,
   loading,
@@ -339,6 +371,8 @@ function HeroSection({
   selectedLocation,
   elapsedDisplay,
   bootComplete,
+  tempUnit,
+  selectedActivity,
 }: {
   heatData: HeatRiskResponse | null
   loading: boolean
@@ -348,113 +382,113 @@ function HeroSection({
   selectedLocation: { lat: number; lon: number; name: string }
   elapsedDisplay: number
   bootComplete: boolean
+  tempUnit: TempUnit
+  selectedActivity: string
 }) {
   const theme = getRiskTheme(riskLevel)
   const temp = heatData?.current.temperature
   const feelsLike = heatData?.current.feelsLike
   const diff = heatData?.historical.difference ?? 0
   const recommendation = heatData?.recommendation ?? ''
+  const activityProfile = getActivityProfile(selectedActivity)
 
   return (
     <section
       id="dashboard"
       className="hero-thermal animate-section-reveal"
       style={{
-        borderRadius: 20,
+        borderRadius: 24,
         border: '1px solid var(--border-subtle)',
         overflow: 'hidden',
-        minHeight: 480,
       }}
     >
-      <div style={{ height: 3, background: `linear-gradient(90deg, transparent, ${theme.ringColor}, transparent)` }} />
+      {/* Risk color accent bar */}
+      <div style={{ height: 4, background: `linear-gradient(90deg, transparent, ${theme.ringColor}, transparent)` }} />
 
-      <div className="relative z-10 p-6 sm:p-8 lg:p-10">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <MapPin className="size-3.5" style={{ color: 'var(--text-tertiary)' }} />
-              <span className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-secondary)' }}>
-                {selectedLocation.name}
-              </span>
-            </div>
-            <p className="font-mono text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-              {selectedLocation.lat.toFixed(4)}° N · {Math.abs(selectedLocation.lon).toFixed(4)}° W
-            </p>
+      <div className="relative z-10 p-4 sm:p-6 lg:p-10">
+
+        {/* ── LOCATION ROW ── */}
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <div className="flex items-center gap-2 min-w-0">
+            <MapPin className="size-3.5 flex-shrink-0" style={{ color: 'var(--accent-cyan)' }} />
+            <span className="text-xs font-bold uppercase tracking-wide truncate" style={{ color: 'var(--text-secondary)' }}>
+              {selectedLocation.name}
+            </span>
           </div>
-
-          <div className="flex items-center gap-3">
+          <div className="flex-shrink-0">
             <LiveDot
               elapsed={elapsedDisplay}
               confidence={heatData?.explainability.confidence ?? 0}
               dataSource={heatData?.dataSource ?? ''}
             />
+          </div>
+        </div>
+
+        {/* ── MOBILE: stacked layout / DESKTOP: 3-col grid ── */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-8 lg:gap-12 items-center">
+
+          {/* Temperature Column */}
+          <div className="sm:col-span-1 flex flex-row sm:flex-col items-center sm:items-start gap-4 sm:gap-0">
+            {loading ? (
+              <Skel className="h-16 w-32 sm:h-20 sm:w-48 mb-0 sm:mb-4" />
+            ) : (
+              <div
+                className="font-mono font-black tracking-tighter leading-none"
+                style={{ fontSize: 'clamp(3.5rem, 16vw, 5rem)', color: 'var(--text-primary)', letterSpacing: '-0.04em' }}
+              >
+                {formatTempUnit(temp, tempUnit)}
+              </div>
+            )}
+
+            {!loading && heatData && (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  <Droplets className="size-3.5" style={{ color: '#38bdf8' }} />
+                  <span>Feels</span>
+                  <span className="font-mono font-bold" style={{ color: 'var(--text-primary)' }}>
+                    {formatTempUnit(feelsLike, tempUnit)}
+                  </span>
+                </div>
+
+                {diff !== 0 && (
+                  <div
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold"
+                    style={{
+                      background: diff >= 0 ? 'rgba(251,146,60,0.12)' : 'rgba(74,222,128,0.12)',
+                      border: `1px solid ${diff >= 0 ? 'rgba(251,146,60,0.25)' : 'rgba(74,222,128,0.25)'}`,
+                      color: diff >= 0 ? '#fb923c' : '#4ade80',
+                    }}
+                  >
+                    <TrendingUp className="size-3" />
+                    {formatDiff(diff)} vs baseline
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Risk Ring — centered, visible on mobile */}
+          <div className="sm:col-span-1 flex flex-col items-center gap-3">
+            {loading ? (
+              <div className="size-36 sm:size-44 rounded-full animate-shimmer" style={{ background: 'var(--border-subtle)' }} />
+            ) : (
+              <RiskRing score={riskScore} level={riskLevel} animated={bootComplete} />
+            )}
             {!loading && heatData && (
               <RiskBadge level={riskLevel} label={riskLabel} />
             )}
           </div>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 lg:gap-12 items-center">
-          {/* Temperature */}
-          <div className="sm:col-span-1">
-            <p className="text-[11px] font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--text-tertiary)' }}>
-              Current Temperature
-            </p>
-            {loading ? (
-              <Skel className="h-20 w-48 mb-4" />
-            ) : (
-              <div
-                className="font-mono font-black tracking-tighter leading-none mb-4"
-                style={{ fontSize: 'clamp(3rem, 8vw, 5rem)', color: 'var(--text-primary)', letterSpacing: '-0.04em' }}
-              >
-                {temp !== undefined ? formatTemperature(temp) : '--'}
-              </div>
-            )}
-
-            {!loading && heatData && (
-              <div className="space-y-2">
-                <div
-                  className="flex items-center gap-2 text-sm"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  <span>Feels like</span>
-                  <span className="font-mono font-bold" style={{ color: 'var(--text-primary)' }}>
-                    {feelsLike !== undefined ? formatTemperature(feelsLike) : '--'}
-                  </span>
-                </div>
-
-                <div
-                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold"
-                  style={{
-                    background: diff >= 0 ? 'rgba(251,146,60,0.12)' : 'rgba(74,222,128,0.12)',
-                    border: `1px solid ${diff >= 0 ? 'rgba(251,146,60,0.25)' : 'rgba(74,222,128,0.25)'}`,
-                    color: diff >= 0 ? '#fb923c' : '#4ade80',
-                  }}
-                >
-                  <TrendingUp className="size-3" />
-                  {formatDiff(diff)} vs 7-day baseline
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Risk Ring */}
-          <div className="sm:col-span-1 flex flex-col items-center gap-4">
-            {loading ? (
-              <div className="size-40 rounded-full animate-shimmer" style={{ background: 'var(--border-subtle)' }} />
-            ) : (
-              <RiskRing score={riskScore} level={riskLevel} animated={bootComplete} />
-            )}
-            <p className="text-[10px] font-bold uppercase tracking-widest text-center" style={{ color: 'var(--text-tertiary)' }}>
-              AI Risk Score
-            </p>
-          </div>
-
-          {/* Action Plan */}
-          <div className="sm:col-span-1 space-y-3">
-            <p className="text-[10px] font-bold uppercase tracking-widest mb-4" style={{ color: 'var(--text-tertiary)' }}>
-              AI Action Plan
-            </p>
+          {/* Peak + Hydration info — hidden on mobile (shown below), shown on sm+ */}
+          <div className="hidden sm:block sm:col-span-1 space-y-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-tertiary)' }}>
+                Safety Info
+              </p>
+              <span className="text-xs font-bold" style={{ color: 'var(--accent-cyan)' }}>
+                {activityProfile.icon} {activityProfile.title}
+              </span>
+            </div>
 
             {loading ? (
               <div className="space-y-2">
@@ -462,37 +496,24 @@ function HeroSection({
               </div>
             ) : heatData ? (
               <>
-                <div
-                  className="rounded-xl p-3.5"
-                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
-                >
+                <div className="rounded-xl p-3.5" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
                   <p className="text-[9px] font-extrabold uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-tertiary)' }}>NOW</p>
                   <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    {formatTemperature(temp)} · {riskLabel}
+                    {formatTempUnit(temp, tempUnit)} · {riskLabel}
                   </p>
                 </div>
 
-                <div
-                  className="rounded-xl p-3.5"
-                  style={{ background: 'rgba(251,146,60,0.08)', border: '1px solid rgba(251,146,60,0.2)' }}
-                >
-                  <p className="text-[9px] font-extrabold uppercase tracking-widest mb-1.5" style={{ color: '#fb923c' }}>PEAK</p>
+                <div className="rounded-xl p-3.5" style={{ background: 'rgba(251,146,60,0.08)', border: '1px solid rgba(251,146,60,0.2)' }}>
+                  <p className="text-[9px] font-extrabold uppercase tracking-widest mb-1.5" style={{ color: '#fb923c' }}>🔥 PEAK</p>
                   <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    {formatTemperature(heatData.peak.temperature)} at {heatData.peak.time}
+                    {formatTempUnit(heatData.peak.temperature, tempUnit)} at {heatData.peak.time}
                   </p>
                 </div>
 
-                <div
-                  className="rounded-xl p-3.5"
-                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
-                >
-                  <p className="text-[9px] font-extrabold uppercase tracking-widest mb-1.5" style={{ color: '#4ade80' }}>
-                    DANGER WINDOW
-                  </p>
+                <div className="rounded-xl p-3.5" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                  <p className="text-[9px] font-extrabold uppercase tracking-widest mb-1.5" style={{ color: '#4ade80' }}>HYDRATION</p>
                   <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
-                    {heatData.peak.windowStart !== '--:--'
-                      ? `${heatData.peak.windowStart} – ${heatData.peak.windowEnd}`
-                      : 'No extended danger window'}
+                    Every {activityProfile.hydrationIntervalMins} mins
                   </p>
                 </div>
               </>
@@ -500,46 +521,115 @@ function HeroSection({
           </div>
         </div>
 
-        {/* AI Recommendation strip */}
+        {/* ── MOBILE: Peak window pill (always visible) ── */}
+        {!loading && heatData && (
+          <div className="sm:hidden mt-4 flex items-center gap-3 flex-wrap">
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold"
+              style={{ background: 'rgba(251,146,60,0.12)', border: '1px solid rgba(251,146,60,0.25)', color: '#fb923c' }}
+            >
+              <Flame className="size-3.5" />
+              Peak {heatData.peak.time}
+            </div>
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold"
+              style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', color: 'var(--accent-cyan)' }}
+            >
+              💧 Every {activityProfile.hydrationIntervalMins} min
+            </div>
+          </div>
+        )}
+
+        {/* ── AI RECOMMENDATION (compact) ── */}
         {!loading && recommendation && (
           <div
-            className="mt-8 flex items-start gap-4 rounded-2xl p-5"
+            className="mt-4 flex items-start gap-3 rounded-2xl p-4"
             style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
           >
             <div
-              className="grid size-9 flex-shrink-0 place-items-center rounded-full mt-0.5"
+              className="grid size-8 flex-shrink-0 place-items-center rounded-full mt-0.5"
               style={{ background: 'rgba(56,189,248,0.12)', border: '1px solid rgba(56,189,248,0.2)' }}
             >
               <ShieldCheck className="size-4" style={{ color: 'var(--accent-cyan)' }} />
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest mb-1.5" style={{ color: 'var(--accent-cyan)' }}>
-                HeatShield AI Recommendation
+              <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--accent-cyan)' }}>
+                ⚠️ HeatShield AI
               </p>
-              <p className="text-sm font-medium leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              <p className="text-xs sm:text-sm font-medium leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                 {recommendation}
               </p>
             </div>
           </div>
         )}
+
+        {/* ── 4 PRIMARY QUICK-ACTIONS ── */}
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+          {[
+            {
+              label: '🛡️ Protect Me',
+              target: 'protect-me',
+              style: { background: 'rgba(56,189,248,0.12)', borderColor: 'rgba(56,189,248,0.3)', color: 'var(--accent-cyan)' },
+              icon: <ShieldCheck className="size-4" />,
+            },
+            {
+              label: '🧊 Cooler Area',
+              target: 'routes',
+              style: { background: 'rgba(74,222,128,0.1)', borderColor: 'rgba(74,222,128,0.25)', color: '#4ade80' },
+              icon: <Snowflake className="size-4" />,
+            },
+            {
+              label: '⏰ Safer Time',
+              target: 'planner',
+              style: { background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' },
+              icon: <Clock className="size-4 text-amber-400" />,
+            },
+            {
+              label: '🗺️ Heat Map',
+              target: 'map',
+              style: { background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' },
+              icon: <Compass className="size-4 text-sky-400" />,
+            },
+          ].map(({ label, target, style, icon }) => (
+            <button
+              key={target}
+              type="button"
+              onClick={() => {
+                const el = document.getElementById(target)
+                if (el) el.scrollIntoView({ behavior: 'smooth' })
+              }}
+              className="flex items-center justify-center gap-2 rounded-2xl border font-bold text-xs transition-all active:scale-95 hover:scale-[1.02]"
+              style={{ ...style, minHeight: 52, padding: '12px 8px' }}
+            >
+              {icon}
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+
       </div>
     </section>
   )
 }
 
-// ── AI EXPLAINABILITY ──────────────────────────────────────────────
-function AIExplainabilitySection({ heatData, loading }: { heatData: HeatRiskResponse | null; loading: boolean }) {
+// ═══════════════════════════════════════════════════════════════════
+// AI EXPLANABILITY PANEL ("Why HeatShield Gave You This Score")
+// ═══════════════════════════════════════════════════════════════════
+function AIExplanationPanel({ heatData, loading, tempUnit }: { heatData: HeatRiskResponse | null; loading: boolean; tempUnit: TempUnit }) {
   const { ref, inView } = useInView()
+  const [expanded, setExpanded] = useState(false)
   const theme = getRiskTheme(heatData?.current.riskLevel ?? 'unknown')
   const score = heatData?.current.riskScore ?? 0
   const label = heatData?.current.riskLabel ?? '—'
   const explain = heatData?.explainability
   const factors = heatData?.riskFactors
 
-  const bars = [
-    { label: 'Temperature Severity', value: factors?.temperature ?? 0, icon: Thermometer, desc: 'Thermal stress level based on current reading' },
-    { label: 'Historical Anomaly', value: factors?.historicalGap ?? 0, icon: TrendingUp, desc: 'How unusual today is vs 7-day baseline' },
-    { label: 'Heat Exposure Duration', value: factors?.heatDuration ?? 0, icon: Clock, desc: 'Persistence of dangerous conditions' },
+  const breakdown5Signals = [
+    { name: 'Thermal Severity', score: factors?.temperature ?? 0, weight: '35%', status: (factors?.temperature ?? 0) >= 60 ? 'High Thermal Stress' : 'Moderate', desc: 'Current apparent temperature relative to dangerous heat threshold.' },
+    { name: 'Historical Anomaly', score: factors?.historicalGap ?? 0, weight: '25%', status: (factors?.historicalGap ?? 0) >= 50 ? 'Significant Anomaly' : 'Near Normal', desc: "Deviation from the local 7-day historical baseline average." },
+    { name: 'Forecast Persistence', score: factors?.heatDuration ?? 0, weight: '20%', status: 'Persistent High Risk', desc: 'Consecutive hours of uninterrupted elevated temperatures.' },
+    { name: 'Forecast Peak', score: Math.round((heatData?.peak.temperature ?? 0) * 2), weight: '10%', status: `${formatTempUnit(heatData?.peak.temperature, tempUnit)} Peak`, desc: 'Maximum predicted thermal reading over the next 12 hours.' },
+    { name: 'Solar Index / Apparent Load', score: Math.round((heatData?.current.feelsLike ?? 0) * 1.8), weight: '10%', status: 'Direct Solar Load', desc: 'Calculated apparent heat index factoring relative humidity.' },
   ]
 
   return (
@@ -559,11 +649,10 @@ function AIExplainabilitySection({ heatData, loading }: { heatData: HeatRiskResp
             </div>
             <div>
               <h2 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
-                Why is the risk{' '}
-                <span style={{ color: theme.ringColor }}>{label}?</span>
+                Why HeatShield Gave You This Score ({score}/100)
               </h2>
               <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
-                heatshield-risk-v1 · Explainable AI
+                heatshield-risk-v1 · 5-Signal Explainable Heat Intelligence Model
               </p>
             </div>
           </div>
@@ -571,84 +660,96 @@ function AIExplainabilitySection({ heatData, loading }: { heatData: HeatRiskResp
           {!loading && explain && (
             <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--text-tertiary)' }}>
               <span className="size-2 rounded-full" style={{ backgroundColor: theme.ringColor }} />
-              {explain.confidence}% confidence
-              <span title="Reflects completeness of data" className="cursor-help opacity-60">
-                <Info className="size-3.5" />
-              </span>
+              {explain.confidence}% AI Model Confidence
             </div>
           )}
         </div>
 
         {loading ? (
-          <div className="space-y-5">
+          <div className="space-y-4">
             {[1, 2, 3].map(i => <Skel key={i} className="h-14 w-full" />)}
           </div>
         ) : (
           <>
-            <div className="space-y-5">
-              {bars.map(({ label: barLabel, value, icon: Icon, desc }) => (
-                <div key={barLabel}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2.5">
-                      <Icon className="size-4" style={{ color: 'var(--text-tertiary)' }} />
-                      <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{barLabel}</span>
-                    </div>
-                    <span className="font-mono text-sm font-bold" style={{ color: theme.ringColor }}>
-                      {value}/100
-                    </span>
-                  </div>
-                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--border-subtle)' }}>
-                    <div
-                      className="h-full rounded-full transition-all duration-1000"
-                      style={{
-                        width: inView ? `${Math.min(100, value)}%` : '0%',
-                        background: `linear-gradient(90deg, ${theme.ringColor}60, ${theme.ringColor})`,
-                        transitionDelay: '300ms',
-                      }}
-                    />
-                  </div>
-                  <p className="text-[11px] mt-1.5" style={{ color: 'var(--text-tertiary)' }}>{desc}</p>
-                </div>
-              ))}
+            {/* Quick 3-bullet summary — always visible */}
+            <div
+              className="mb-4 rounded-2xl p-4 border"
+              style={{ background: `${theme.ringColor}08`, borderColor: `${theme.ringColor}25` }}
+            >
+              <p className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color: theme.ringColor }}>
+                ⚡ Why this risk score?
+              </p>
+              <ul className="space-y-1.5">
+                <li className="flex items-start gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  <span>🌡️</span>
+                  <span>Apparent temp: <strong style={{ color: 'var(--text-primary)' }}>{formatTempUnit(heatData?.current.feelsLike, tempUnit)}</strong> — {(factors?.temperature ?? 0) >= 60 ? 'high thermal stress' : 'moderate thermal load'}</span>
+                </li>
+                <li className="flex items-start gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  <span>📈</span>
+                  <span>Historical gap: <strong style={{ color: 'var(--text-primary)' }}>{(factors?.historicalGap ?? 0) >= 50 ? 'Significant anomaly' : 'Near normal baseline'}</strong></span>
+                </li>
+                <li className="flex items-start gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  <span>🔥</span>
+                  <span>Risk score: <strong style={{ color: theme.ringColor }}>{score}/100 — {label}</strong></span>
+                </li>
+              </ul>
             </div>
 
-            {explain && explain.topDrivers.length > 0 && (
-              <div
-                className="mt-6 rounded-2xl p-5"
-                style={{ background: `${theme.ringColor}08`, border: `1px solid ${theme.ringColor}20` }}
-              >
-                <p className="text-[10px] uppercase tracking-widest font-bold mb-4" style={{ color: 'var(--text-tertiary)' }}>
-                  AI-Detected Key Drivers
+            {/* Toggle for full breakdown */}
+            <button
+              type="button"
+              onClick={() => setExpanded(v => !v)}
+              className="flex items-center gap-2 text-xs font-bold mb-4 transition-colors"
+              style={{ color: 'var(--accent-cyan)' }}
+            >
+              <ChevronDown
+                className="size-4 transition-transform duration-300"
+                style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
+              />
+              {expanded ? 'Hide Full Analysis' : 'View 5-Signal AI Breakdown'}
+            </button>
+
+            {expanded && (
+              <div className="space-y-4">
+                <p className="text-[10px] font-extrabold uppercase tracking-widest" style={{ color: 'var(--text-tertiary)' }}>
+                  5-Signal Risk Factor Breakdown
                 </p>
-                <div className="space-y-3">
-                  {explain.topDrivers.slice(0, 3).map((driver, i) => (
-                    <div key={i} className="flex items-start gap-3">
-                      <span
-                        className="flex-shrink-0 grid size-5 place-items-center rounded-full text-[10px] font-black"
-                        style={{ backgroundColor: theme.ringColor, color: '#080b10', marginTop: 1 }}
-                      >
-                        {i + 1}
-                      </span>
-                      <span className="text-sm font-medium leading-snug" style={{ color: 'var(--text-secondary)' }}>
-                        {driver}
-                      </span>
+
+                <div className="grid grid-cols-1 gap-3">
+                  {breakdown5Signals.map((sig) => (
+                    <div
+                      key={sig.name}
+                      className="p-4 rounded-2xl border transition-all"
+                      style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>{sig.name}</span>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full" style={{ background: 'var(--border-subtle)', color: 'var(--text-tertiary)' }}>
+                            {sig.weight}
+                          </span>
+                        </div>
+                        <span className="font-mono text-sm font-bold" style={{ color: theme.ringColor }}>
+                          {sig.score}/100
+                        </span>
+                      </div>
+
+                      <div className="h-2 rounded-full overflow-hidden mb-2" style={{ background: 'var(--border-subtle)' }}>
+                        <div
+                          className="h-full rounded-full transition-all duration-1000"
+                          style={{
+                            width: `${Math.min(100, sig.score)}%`,
+                            background: `linear-gradient(90deg, ${theme.ringColor}60, ${theme.ringColor})`,
+                          }}
+                        />
+                      </div>
+
+                      <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{sig.desc}</p>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-
-            <div className="mt-5 flex items-center justify-between pt-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <span className="text-xs font-semibold" style={{ color: 'var(--text-tertiary)' }}>
-                Combined AI Risk Score
-              </span>
-              <div className="flex items-center gap-3">
-                <RiskBadge level={heatData?.current.riskLevel ?? 'unknown'} label={label} />
-                <span className="font-mono text-lg font-black" style={{ color: theme.ringColor }}>
-                  {score}/100
-                </span>
-              </div>
-            </div>
           </>
         )}
       </div>
@@ -656,80 +757,48 @@ function AIExplainabilitySection({ heatData, loading }: { heatData: HeatRiskResp
   )
 }
 
-// ── FORECAST CHART ─────────────────────────────────────────────────
-function ForecastSection({ heatData, loading }: { heatData: HeatRiskResponse | null; loading: boolean }) {
+// ═══════════════════════════════════════════════════════════════════
+// FORECAST SECTION
+// ═══════════════════════════════════════════════════════════════════
+function ForecastSection({ heatData, loading, tempUnit }: { heatData: HeatRiskResponse | null; loading: boolean; tempUnit: TempUnit }) {
   const { ref, inView } = useInView()
+  const [selectedHourIndex, setSelectedHourIndex] = useState<number | null>(null)
+
   const forecast = heatData?.forecast ?? []
-  const peak = heatData?.peak
-  const peakTime = peak?.time
-  const windowStart = peak?.windowStart
-  const windowEnd = peak?.windowEnd
 
   const chartData = useMemo(() => {
     if (!forecast.length) return []
     return forecast.map((item, idx) => ({
       time: item.time,
-      temp: item.temperature,
+      temp: tempUnit === 'F' ? celsiusToFahrenheit(item.temperature) : item.temperature,
+      tempC: item.temperature,
       riskScore: item.riskScore || levelToRiskScore(item.level),
       level: item.level,
       label: item.label,
       hourIndex: idx,
     }))
+  }, [forecast, tempUnit])
+
+  const hottestHour = useMemo(() => {
+    if (!forecast.length) return null
+    return [...forecast].sort((a, b) => b.temperature - a.temperature)[0]
   }, [forecast])
 
-  const consecutiveByTime = useMemo(() => {
-    const result: Record<string, number> = {}
-    let count = 0
-    for (const item of forecast) {
-      const level = item.level.toLowerCase()
-      if (level === 'high' || level === 'very_high' || level === 'extreme') {
-        count++
-        result[item.time] = count
-      } else {
-        count = 0
-      }
-    }
-    return result
+  const highestRiskHour = useMemo(() => {
+    if (!forecast.length) return null
+    return [...forecast].sort((a, b) => b.riskScore - a.riskScore)[0]
+  }, [forecast])
+
+  const safestHour = useMemo(() => {
+    if (!forecast.length) return null
+    return [...forecast].sort((a, b) => a.riskScore - b.riskScore)[0]
   }, [forecast])
 
   const temps = chartData.map((d) => d.temp)
   const minT = temps.length ? Math.max(0, Math.floor(Math.min(...temps) - 3)) : 0
   const maxT = temps.length ? Math.ceil(Math.max(...temps) + 3) : 50
 
-  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ value: number; payload: typeof chartData[0] }> }) => {
-    if (!active || !payload?.length) return null
-    const d = payload[0]?.payload
-    if (!d) return null
-    const t = getRiskTheme(d.level)
-    const consecutive = consecutiveByTime[d.time]
-    return (
-      <div
-        className="rounded-xl shadow-2xl p-3 text-xs min-w-[140px]"
-        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)' }}
-      >
-        <p className="font-mono font-bold mb-1.5" style={{ color: 'var(--text-primary)' }}>{d.time}</p>
-        <p className="font-bold text-lg font-mono" style={{ color: 'var(--text-primary)' }}>{d.temp.toFixed(1)}°C</p>
-        <p className="font-semibold mt-1" style={{ color: t.ringColor }}>{d.label}</p>
-        {consecutive > 1 && (
-          <p className="mt-1" style={{ color: 'var(--text-tertiary)' }}>
-            {consecutive}{consecutive === 1 ? 'st' : consecutive === 2 ? 'nd' : consecutive === 3 ? 'rd' : 'th'} consecutive high-risk hour
-          </p>
-        )}
-      </div>
-    )
-  }
-
-  const timeline = useMemo(() => {
-    if (!heatData?.forecast?.length) return []
-    return heatData.forecast.slice(0, 8).map(item => [item.time, item.label, item.level]) as Array<[string, string, string]>
-  }, [heatData])
-
-  const bestHours = useMemo(() => {
-    if (!forecast.length) return { start: '--:--', end: '--:--' }
-    const lowHours = forecast.filter(h => h.level === 'low' || h.level === 'moderate')
-    if (!lowHours.length) return { start: '--:--', end: '--:--' }
-    return { start: lowHours[0].time, end: lowHours[lowHours.length - 1].time }
-  }, [forecast])
+  const selectedItem = selectedHourIndex !== null ? forecast[selectedHourIndex] : null
 
   return (
     <section
@@ -740,463 +809,185 @@ function ForecastSection({ heatData, loading }: { heatData: HeatRiskResponse | n
     >
       <div className="mb-3">
         <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-tertiary)' }}>
-          Section 02
+          12-Hour Timeline
         </p>
         <h2 className="text-xl font-bold mt-1" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
-          What happens over the next 12 hours
+          Hourly Forecast
         </h2>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[1.4fr_.6fr]">
-        <div className="hs-card p-6">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>12-Hour Temperature Forecast</h3>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>Risk zones overlaid on temperature curve</p>
-            </div>
-            {peak && peak.temperature > 0 && (
-              <div className="text-right rounded-xl px-3.5 py-2" style={{ background: 'rgba(251,146,60,0.1)', border: '1px solid rgba(251,146,60,0.2)' }}>
-                <p className="text-[9px] font-extrabold uppercase tracking-widest" style={{ color: '#fb923c' }}>Peak</p>
-                <p className="font-mono text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-                  {peak.temperature}°C
-                  <span className="font-sans text-xs font-normal" style={{ color: 'var(--text-tertiary)' }}>
-                    {peak.time ? ` @ ${peak.time}` : ''}
-                  </span>
+      {/* Smart summary — most important info first */}
+      {!loading && safestHour && (
+        <div
+          className="mb-4 rounded-2xl p-4 border"
+          style={{ background: 'rgba(74,222,128,0.07)', borderColor: 'rgba(74,222,128,0.25)' }}
+        >
+          <p className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-400 mb-1.5">
+            🟢 Best time to go outside
+          </p>
+          <p className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
+            {safestHour.time} — {formatTempUnit(safestHour.temperature, tempUnit)}
+          </p>
+          {hottestHour && (
+            <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+              ⚠️ Avoid around <strong style={{ color: '#fb923c' }}>{hottestHour.time}</strong> ({formatTempUnit(hottestHour.temperature, tempUnit)} peak)
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Compact 3-stat row */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4">
+        <div className="p-3 sm:p-4 rounded-2xl border text-center" style={{ background: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)' }}>
+          <p className="text-[9px] font-extrabold uppercase tracking-widest text-red-400 mb-1">🔥 Peak</p>
+          <p className="font-mono text-xs sm:text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+            {hottestHour ? `${hottestHour.time}` : '--'}
+          </p>
+          <p className="font-mono text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+            {hottestHour ? formatTempUnit(hottestHour.temperature, tempUnit) : ''}
+          </p>
+        </div>
+
+        <div className="p-3 sm:p-4 rounded-2xl border text-center" style={{ background: 'rgba(251,146,60,0.08)', borderColor: 'rgba(251,146,60,0.2)' }}>
+          <p className="text-[9px] font-extrabold uppercase tracking-widest text-orange-400 mb-1">⚠️ High-Risk</p>
+          <p className="font-mono text-xs sm:text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+            {highestRiskHour ? `${highestRiskHour.time}` : '--'}
+          </p>
+          <p className="font-mono text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+            {highestRiskHour ? `${highestRiskHour.riskScore}/100` : ''}
+          </p>
+        </div>
+
+        <div className="p-3 sm:p-4 rounded-2xl border text-center" style={{ background: 'rgba(74,222,128,0.08)', borderColor: 'rgba(74,222,128,0.2)' }}>
+          <p className="text-[9px] font-extrabold uppercase tracking-widest text-emerald-400 mb-1">🟢 Safest</p>
+          <p className="font-mono text-xs sm:text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+            {safestHour ? `${safestHour.time}` : '--'}
+          </p>
+          <p className="font-mono text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+            {safestHour ? formatTempUnit(safestHour.temperature, tempUnit) : ''}
+          </p>
+        </div>
+      </div>
+
+      <div className="hs-card p-4 sm:p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Hourly Cards</h3>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>Tap any hour for details</p>
+          </div>
+        </div>
+
+        {/* Hourly Cards Row */}
+        <div className="flex gap-2 overflow-x-auto pb-2 pr-2">
+          {forecast.map((item, idx) => {
+            const isSelected = selectedHourIndex === idx
+            const theme = getRiskTheme(item.level)
+            return (
+              <button
+                key={idx}
+                onClick={() => setSelectedHourIndex(idx)}
+                className="flex-shrink-0 min-w-[80px] sm:min-w-[95px] p-3 rounded-2xl border text-center transition-all active:scale-95"
+                style={{
+                  background: isSelected ? `${theme.ringColor}18` : 'var(--bg-elevated)',
+                  borderColor: isSelected ? theme.ringColor : 'var(--border-subtle)',
+                }}
+              >
+                <p className="font-mono text-xs font-bold" style={{ color: 'var(--text-tertiary)' }}>{item.time}</p>
+                <p className="font-mono text-sm font-black my-1" style={{ color: 'var(--text-primary)' }}>
+                  {formatTempUnit(item.temperature, tempUnit)}
+                </p>
+                <span
+                  className="inline-block size-2 rounded-full"
+                  style={{ backgroundColor: theme.ringColor }}
+                />
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Selected Hour Details Callout */}
+        {selectedItem && (
+          <div className="mt-4 p-4 rounded-2xl border animate-fade-in" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                  Hourly Snapshot @ {selectedItem.time}
+                </p>
+                <p className="text-xs mt-0.5 font-medium" style={{ color: 'var(--text-secondary)' }}>
+                  Temperature: {formatTempUnit(selectedItem.temperature, tempUnit)} · Risk: {selectedItem.riskScore}/100 ({selectedItem.label})
                 </p>
               </div>
-            )}
-          </div>
-
-          {loading ? (
-            <Skel className="h-[240px] w-full" />
-          ) : (
-            <>
-              <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={chartData} margin={{ left: -16, right: 8, top: 12, bottom: 4 }}>
-                  <defs>
-                    <linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#fb923c" stopOpacity={0.25} />
-                      <stop offset="100%" stopColor="#fb923c" stopOpacity={0.01} />
-                    </linearGradient>
-                  </defs>
-
-                  {TEMP_RISK_BANDS.map((band) => (
-                    <ReferenceArea
-                      key={band.label}
-                      yAxisId="temp"
-                      y1={Math.max(minT, band.tempMin)}
-                      y2={Math.min(maxT, band.tempMax)}
-                      fill={band.color}
-                      fillOpacity={0.06}
-                      ifOverflow="visible"
-                    />
-                  ))}
-
-                  {windowStart && windowEnd && windowStart !== '--:--' && (
-                    <ReferenceArea
-                      yAxisId="temp"
-                      x1={windowStart}
-                      x2={windowEnd}
-                      fill="#ef4444"
-                      fillOpacity={0.06}
-                      strokeWidth={0}
-                    />
-                  )}
-
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--border-subtle)" />
-                  <XAxis
-                    dataKey="time"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    fontSize={10}
-                    interval={1}
-                    tick={{ fill: 'var(--text-tertiary)' }}
-                  />
-                  <YAxis
-                    yAxisId="temp"
-                    domain={[minT, maxT]}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v) => `${v}°`}
-                    fontSize={10}
-                    tick={{ fill: 'var(--text-tertiary)' }}
-                  />
-
-                  {chartData[0] && (
-                    <ReferenceLine
-                      yAxisId="temp"
-                      x={chartData[0].time}
-                      stroke="var(--text-tertiary)"
-                      strokeWidth={1.5}
-                      strokeDasharray="4 2"
-                      label={{ value: 'NOW', position: 'insideTopRight', fontSize: 9, fontWeight: 800, fill: 'var(--text-secondary)' }}
-                    />
-                  )}
-
-                  {peakTime && peakTime !== '--:--' && (
-                    <ReferenceLine
-                      yAxisId="temp"
-                      x={peakTime}
-                      stroke="#fb923c"
-                      strokeWidth={1.5}
-                      strokeDasharray="4 2"
-                      label={{ value: 'PEAK', position: 'insideTopRight', fontSize: 9, fontWeight: 800, fill: '#fb923c' }}
-                    />
-                  )}
-
-                  <Tooltip content={<CustomTooltip />} />
-
-                  <Area
-                    yAxisId="temp"
-                    type="monotone"
-                    dataKey="temp"
-                    stroke="#fb923c"
-                    fill="url(#tempGrad)"
-                    strokeWidth={2.5}
-                    dot={{ r: 3, fill: '#fb923c', strokeWidth: 1.5, stroke: 'var(--bg-surface)' }}
-                    activeDot={{ r: 5, fill: '#fb923c', strokeWidth: 2, stroke: 'var(--text-primary)' }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-
-              <div className="mt-4 flex flex-wrap gap-3 pt-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-                {TEMP_RISK_BANDS.map((band) => (
-                  <span key={band.label} className="flex items-center gap-1.5 text-[10px] font-semibold" style={{ color: 'var(--text-tertiary)' }}>
-                    <span className="size-2 rounded-sm" style={{ backgroundColor: band.color, opacity: 0.8 }} />
-                    {band.label}
-                  </span>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="hs-card p-5 flex flex-col gap-4">
-          <div className="grid grid-cols-1 gap-3">
-            <div
-              className="rounded-xl p-3.5"
-              style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)' }}
-            >
-              <p className="text-[9px] font-extrabold uppercase tracking-widest mb-1" style={{ color: '#ef4444' }}>
-                ⚠ Avoid Window
-              </p>
-              <p className="font-mono text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-                {loading ? '—' : windowStart !== '--:--' ? `${windowStart} – ${windowEnd}` : 'No danger window'}
-              </p>
-            </div>
-            <div
-              className="rounded-xl p-3.5"
-              style={{ background: 'rgba(74,222,128,0.07)', border: '1px solid rgba(74,222,128,0.2)' }}
-            >
-              <p className="text-[9px] font-extrabold uppercase tracking-widest mb-1" style={{ color: '#4ade80' }}>
-                ✓ Best Window
-              </p>
-              <p className="font-mono text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-                {loading ? '—' : bestHours.start !== '--:--' ? `${bestHours.start} – ${bestHours.end}` : 'Conditions elevated all day'}
-              </p>
+              <button onClick={() => setSelectedHourIndex(null)} className="text-xs text-sky-400 font-bold">Close</button>
             </div>
           </div>
-
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--text-tertiary)' }}>
-              Hourly Risk
-            </p>
-            {loading ? (
-              <div className="space-y-2">
-                {[1,2,3,4,5,6].map(i => <Skel key={i} className="h-8 w-full" />)}
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {timeline.map(([time, label, level], idx) => {
-                  const t = getRiskTheme(level)
-                  return (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-3 py-2 rounded-xl px-2 transition-colors"
-                      style={{ borderBottom: '1px solid var(--border-subtle)' }}
-                    >
-                      <span className="font-mono text-[11px] font-bold w-12 text-right flex-shrink-0" style={{ color: 'var(--text-tertiary)' }}>
-                        {time}
-                      </span>
-                      <span
-                        className="size-2 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: t.ringColor }}
-                      />
-                      <span className="text-xs font-semibold flex-1" style={{ color: 'var(--text-secondary)' }}>{label}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+        )}
       </div>
     </section>
   )
 }
 
-// ── MAP SECTION ────────────────────────────────────────────────────
-function MapSection({
-  latitude, longitude, locationName, onSelect,
-  heatData, saferData, loading,
-}: {
-  latitude: number; longitude: number; locationName: string
-  onSelect: (lat: number, lon: number) => void
-  heatData: HeatRiskResponse | null; saferData: NearbySaferResponse | null; loading: boolean
-}) {
-  const { ref, inView } = useInView()
-  const summary = heatData?.current
-  const peak = heatData?.peak
-  const level = summary?.riskLevel ?? 'unknown'
-  const theme = getRiskTheme(level)
+// ═══════════════════════════════════════════════════════════════════
+// TEMPERATURE VS FEELS LIKE COMPARISON CARD
+// ═══════════════════════════════════════════════════════════════════
+function TempVsFeelsLikeCard({ heatData, loading, tempUnit }: { heatData: HeatRiskResponse | null; loading: boolean; tempUnit: TempUnit }) {
+  const actualC = heatData?.current.temperature ?? 0
+  const feelsC = heatData?.current.feelsLike ?? 0
+  const diffC = Math.max(0, feelsC - actualC)
 
   return (
-    <section
-      id="map"
-      ref={ref}
-      className={`section-hidden ${inView ? 'section-visible' : ''}`}
-      style={{ transitionDelay: '80ms' }}
-    >
-      <div className="mb-3">
-        <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-tertiary)' }}>
-          Section 03
-        </p>
-        <h2 className="text-xl font-bold mt-1" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
-          Where the heat is
-        </h2>
-      </div>
-
-      <div className="hs-card overflow-hidden">
-        <div className="grid lg:grid-cols-[1fr_280px]">
-          <div
-            className="relative min-h-[360px] sm:min-h-[420px]"
-            aria-label="Live thermal heat map of your location"
-          >
-            <HeatMap
-              latitude={latitude}
-              longitude={longitude}
-              currentTemp={summary?.temperature}
-              saferTemp={saferData?.safer_temp_c}
-              riskLevel={level}
-              onSelect={onSelect}
-            />
-            <button
-              onClick={() => window.dispatchEvent(new Event('heatshield-recenter'))}
-              className="absolute top-3 right-3 z-[1000] flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition-all"
-              style={{
-                background: 'var(--bg-elevated)',
-                border: '1px solid var(--border-default)',
-                color: 'var(--text-primary)',
-                backdropFilter: 'blur(8px)',
-              }}
-            >
-              <Crosshair className="size-3.5" />
-              Recenter
-            </button>
-          </div>
-
-          <div className="p-6 flex flex-col justify-between" style={{ borderLeft: '1px solid var(--border-subtle)' }}>
-            <div>
-              <div className="flex items-start justify-between gap-2 mb-5">
-                <div>
-                  <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{locationName}</p>
-                  <p className="font-mono text-[11px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
-                    {latitude.toFixed(4)}, {longitude.toFixed(4)}
-                  </p>
-                </div>
-                {loading ? (
-                  <Skel className="h-6 w-20 rounded-full" />
-                ) : (
-                  <RiskBadge level={level} label={summary?.riskLabel ?? 'Unknown'} />
-                )}
-              </div>
-
-              <div className="mb-5">
-                {loading ? (
-                  <Skel className="h-14 w-36" />
-                ) : (
-                  <div className="font-mono font-black tracking-tighter" style={{ fontSize: 52, color: 'var(--text-primary)', letterSpacing: '-0.04em', lineHeight: 1 }}>
-                    {summary ? formatTemperature(summary.temperature) : '--'}
-                  </div>
-                )}
-                <p className="text-xs mt-1.5 font-semibold" style={{ color: 'var(--text-tertiary)' }}>current</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 py-4" style={{ borderTop: '1px solid var(--border-subtle)', borderBottom: '1px solid var(--border-subtle)' }}>
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-tertiary)' }}>Risk Score</p>
-                  {loading ? <Skel className="h-6 w-14 mt-1" /> : (
-                    <p className="font-mono text-base font-bold" style={{ color: theme.ringColor }}>
-                      {summary?.riskScore ?? 0}/100
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-tertiary)' }}>Peak Today</p>
-                  {loading ? <Skel className="h-6 w-16 mt-1" /> : (
-                    <p className="font-mono text-base font-bold" style={{ color: 'var(--text-primary)' }}>
-                      {peak ? `${peak.temperature}°C` : '--'}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <a
-              href="#safer-location"
-              onClick={(e) => { e.preventDefault(); document.getElementById('safer-location')?.scrollIntoView({ behavior: 'smooth' }) }}
-              className="mt-5 flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-all"
-              style={{ background: 'var(--accent-cyan)', color: 'var(--primary-foreground)', minHeight: 46 }}
-            >
-              <Navigation className="size-4" />
-              Find Cooler Path
-            </a>
-          </div>
+    <div className="hs-card p-6">
+      <div className="flex items-center gap-3 mb-6">
+        <div
+          className="grid size-10 place-items-center rounded-2xl"
+          style={{ background: 'rgba(250,204,21,0.12)', border: '1px solid rgba(250,204,21,0.2)' }}
+        >
+          <Thermometer className="size-5 text-amber-400" />
+        </div>
+        <div>
+          <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Temperature vs Feels Like</h3>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>Actual reading vs apparent heat index</p>
         </div>
       </div>
-    </section>
+
+      <div className="grid grid-cols-2 gap-4 text-center mb-6">
+        <div className="p-4 rounded-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+          <p className="text-[9px] font-extrabold uppercase tracking-widest mb-1" style={{ color: 'var(--text-tertiary)' }}>Actual Temp</p>
+          <p className="font-mono text-3xl font-black" style={{ color: 'var(--text-primary)' }}>
+            {formatTempUnit(actualC, tempUnit)}
+          </p>
+        </div>
+
+        <div className="p-4 rounded-2xl" style={{ background: 'rgba(250,204,21,0.08)', border: '1px solid rgba(250,204,21,0.2)' }}>
+          <p className="text-[9px] font-extrabold uppercase tracking-widest text-amber-400 mb-1">Feels Like</p>
+          <p className="font-mono text-3xl font-black text-amber-400">
+            {formatTempUnit(feelsC, tempUnit)}
+          </p>
+        </div>
+      </div>
+
+      <div className="p-4 rounded-2xl border text-xs font-medium leading-relaxed" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}>
+        {diffC > 1 ? (
+          <>
+            🔥 <span className="font-bold text-amber-400">Apparent temperature is {diffC.toFixed(1)}°C higher</span> due to relative humidity preventing sweat evaporation and high solar radiation load.
+          </>
+        ) : (
+          <>
+            ✓ Actual and feels-like temperatures are aligned. Humidity load is normal.
+          </>
+        )}
+      </div>
+    </div>
   )
 }
 
-// ── COOLER PATH SECTION ────────────────────────────────────────────
-function CoolerPathSection({
-  heatData, saferData, saferLoading, saferError, onFetchSafer, isUS,
-}: {
-  heatData: HeatRiskResponse | null; saferData: NearbySaferResponse | null
-  saferLoading: boolean; saferError: string | null; onFetchSafer: () => void; isUS: boolean
-}) {
-  const { ref, inView } = useInView()
-  const currentTemp = heatData?.current.temperature ?? 0
-
-  return (
-    <section
-      id="safer-location"
-      ref={ref}
-      className={`section-hidden ${inView ? 'section-visible' : ''}`}
-      style={{ transitionDelay: '100ms' }}
-    >
-      <div className="mb-3">
-        <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-tertiary)' }}>
-          Section 04
-        </p>
-        <h2 className="text-xl font-bold mt-1" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
-          Find a cooler route
-        </h2>
-      </div>
-
-      <div className="grid gap-5 lg:grid-cols-2">
-        <div className="hs-card p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div
-              className="grid size-10 place-items-center rounded-2xl"
-              style={{ background: 'rgba(56,189,248,0.12)', border: '1px solid rgba(56,189,248,0.2)' }}
-            >
-              <Navigation className="size-5" style={{ color: 'var(--accent-cyan)' }} />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>FortyGuard Cooler Spot</h3>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>8-direction thermal sampling</p>
-            </div>
-          </div>
-
-          {saferLoading ? (
-            <div className="space-y-3">
-              <Skel className="h-28 w-full" />
-              <Skel className="h-12 w-full" />
-            </div>
-          ) : saferData ? (
-            <div className="space-y-4 animate-fade-in">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-2xl p-4 text-center" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-                  <p className="text-[9px] font-extrabold uppercase tracking-widest mb-2" style={{ color: 'var(--text-tertiary)' }}>Current</p>
-                  <p className="font-mono text-3xl font-black" style={{ color: 'var(--text-primary)' }}>
-                    {formatTemperature(currentTemp)}
-                  </p>
-                  <p className="text-[10px] mt-1" style={{ color: 'var(--text-tertiary)' }}>Your location</p>
-                </div>
-                <div className="rounded-2xl p-4 text-center" style={{ background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)' }}>
-                  <p className="text-[9px] font-extrabold uppercase tracking-widest mb-2" style={{ color: '#4ade80' }}>Cooler Nearby</p>
-                  <p className="font-mono text-3xl font-black" style={{ color: '#4ade80' }}>
-                    {formatTemperature(saferData.safer_temp_c)}
-                  </p>
-                  <p className="text-[10px] mt-1" style={{ color: '#4ade80' }}>
-                    {saferData.distance_m}m {saferData.direction}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-center gap-3">
-                <div className="h-px flex-1" style={{ background: 'var(--border-subtle)' }} />
-                <div
-                  className="rounded-full px-5 py-2 text-base font-black"
-                  style={{ background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80' }}
-                >
-                  −{Math.abs(saferData.delta_c).toFixed(1)}°C cooler
-                </div>
-                <div className="h-px flex-1" style={{ background: 'var(--border-subtle)' }} />
-              </div>
-
-              <div className="rounded-xl p-3.5 text-sm font-medium" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>
-                {saferData.is_meaningfully_cooler
-                  ? `✓ Found a meaningfully cooler micro-zone ${saferData.distance_m}m ${saferData.direction} of your position.`
-                  : `Temperature nearby is similar (${saferData.delta_c}°C variance). Conditions are uniform in this area.`}
-              </div>
-
-              {saferData.maps_url && (
-                <a
-                  href={saferData.maps_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-all"
-                  style={{ background: '#4ade80', color: '#080b10', minHeight: 46 }}
-                >
-                  Take the cooler route
-                  <ArrowRight className="size-4" />
-                  <ExternalLink className="size-3.5" />
-                </a>
-              )}
-            </div>
-          ) : (
-            <div className="py-4 text-center">
-              <p className="text-sm mb-6" style={{ color: 'var(--text-secondary)' }}>
-                Trigger a FortyGuard 8-direction scan to find a nearby cooler spot.
-              </p>
-              <button
-                onClick={onFetchSafer}
-                disabled={saferLoading || !isUS}
-                className="w-full flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ background: 'var(--accent-cyan)', color: 'var(--primary-foreground)', minHeight: 46 }}
-              >
-                {saferLoading ? <Loader2 className="size-4 animate-spin" /> : <Navigation className="size-4" />}
-                Scan Nearby Cooler Spot
-              </button>
-            </div>
-          )}
-
-          {saferError && (
-            <p className="text-xs text-center mt-3 font-semibold" style={{ color: '#ef4444' }}>{saferError}</p>
-          )}
-        </div>
-
-        <HistoricalBaselineCard heatData={heatData} loading={false} />
-      </div>
-    </section>
-  )
-}
-
-// ── HISTORICAL BASELINE ────────────────────────────────────────────
-function HistoricalBaselineCard({ heatData, loading }: { heatData: HeatRiskResponse | null; loading: boolean }) {
+// ═══════════════════════════════════════════════════════════════════
+// HISTORICAL COMPARISON CARD ("How Unusual is Today?")
+// ═══════════════════════════════════════════════════════════════════
+function HistoricalComparisonCard({ heatData, loading, tempUnit }: { heatData: HeatRiskResponse | null; loading: boolean; tempUnit: TempUnit }) {
   const currentTemp = heatData?.current.temperature ?? 0
   const avgTemp = heatData?.historical.averageTemperature ?? 0
   const diff = heatData?.historical.difference ?? 0
   const isUnusual = heatData?.historical.isUnusual ?? false
-
-  const minTemp = Math.floor(Math.min(avgTemp - 4, currentTemp - 2))
-  const maxTemp = Math.ceil(Math.max(avgTemp + 4, currentTemp + 2))
-  const range = maxTemp - minTemp
-  const avgPct = ((avgTemp - minTemp) / range) * 100
-  const curPct = ((currentTemp - minTemp) / range) * 100
 
   return (
     <div className="hs-card p-6">
@@ -1208,243 +999,42 @@ function HistoricalBaselineCard({ heatData, loading }: { heatData: HeatRiskRespo
           <Activity className="size-5" style={{ color: '#fb923c' }} />
         </div>
         <div>
-          <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Historical Baseline</h3>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>Current vs 7-day average</p>
+          <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>How Unusual Is Today?</h3>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>Current vs historical baseline</p>
         </div>
       </div>
 
-      {loading ? (
-        <div className="space-y-4">
-          <Skel className="h-16 w-full" />
-          <Skel className="h-8 w-full" />
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <p className="font-mono text-3xl font-black" style={{ color: diff >= 0 ? '#fb923c' : '#4ade80' }}>
+            {formatDiff(diff)}
+          </p>
+          <p className="text-[10px] font-bold uppercase tracking-widest mt-1" style={{ color: 'var(--text-tertiary)' }}>
+            {isUnusual ? 'Significant Anomaly' : 'Near Baseline'}
+          </p>
         </div>
-      ) : (
-        <>
-          <div className="flex items-start justify-between mb-6">
-            <div>
-              <div
-                className="text-3xl font-mono font-black tracking-tight"
-                style={{ color: diff >= 1.5 ? '#fb923c' : diff >= 0 ? '#facc15' : '#4ade80' }}
-              >
-                {formatDiff(diff)}
-              </div>
-              <p className="text-[11px] font-bold uppercase tracking-widest mt-1" style={{ color: 'var(--text-tertiary)' }}>
-                {isUnusual
-                  ? diff >= 0 ? 'Hotter than usual' : 'Cooler than usual'
-                  : 'Near baseline'}
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-4 text-right text-xs">
-              <div>
-                <p className="font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-tertiary)', fontSize: 9 }}>Current</p>
-                <p className="font-mono text-base font-bold" style={{ color: 'var(--text-primary)' }}>{formatTemperature(currentTemp)}</p>
-              </div>
-              <div>
-                <p className="font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-tertiary)', fontSize: 9 }}>7-Day Avg</p>
-                <p className="font-mono text-base font-bold" style={{ color: 'var(--text-secondary)' }}>{formatTemperature(avgTemp)}</p>
-              </div>
-            </div>
-          </div>
 
-          <div className="relative">
-            <div
-              className="h-3 rounded-full relative overflow-hidden"
-              style={{ background: 'linear-gradient(90deg, rgba(56,189,248,0.3), rgba(250,204,21,0.3), rgba(239,68,68,0.3))' }}
-            >
-              <div
-                className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 size-3 rounded-full"
-                style={{ left: `${avgPct}%`, background: 'var(--bg-base)', border: '2px solid var(--text-tertiary)' }}
-              />
-              <div
-                className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 size-4 rounded-full z-10"
-                style={{
-                  left: `${Math.max(0, Math.min(100, curPct))}%`,
-                  backgroundColor: diff >= 1.5 ? '#fb923c' : diff >= 0 ? '#facc15' : '#4ade80',
-                  border: '2px solid var(--bg-surface)',
-                }}
-              />
-            </div>
-            <div className="flex justify-between mt-2 text-[10px] font-bold" style={{ color: 'var(--text-tertiary)' }}>
-              <span>{minTemp}°C</span>
-              <span>baseline ●</span>
-              <span>{maxTemp}°C</span>
-            </div>
-          </div>
+        <div className="text-right text-xs">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-tertiary mb-1">Historical Avg</p>
+          <p className="font-mono text-lg font-bold" style={{ color: 'var(--text-secondary)' }}>
+            {formatTempUnit(avgTemp, tempUnit)}
+          </p>
+        </div>
+      </div>
 
-          {heatData?.historical.message && (
-            <div
-              className="mt-4 rounded-xl p-3.5 text-xs font-medium"
-              style={{ background: 'rgba(250,204,21,0.06)', border: '1px solid rgba(250,204,21,0.15)', color: '#d97706' }}
-            >
-              {heatData.historical.message}
-            </div>
-          )}
-        </>
-      )}
+      <div className="p-4 rounded-2xl border text-xs font-medium" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}>
+        {heatData?.historical.message || "Today's temperature is evaluated against Thirty-year regional baseline data."}
+      </div>
     </div>
   )
 }
 
-// ── RISK FACTOR BREAKDOWN ──────────────────────────────────────────
-function RiskFactorsSection({ heatData, loading, riskScore, theme }: {
-  heatData: HeatRiskResponse | null; loading: boolean; riskScore: number
-  theme: { color: string; ringColor: string; bgColor: string }
-}) {
-  const { ref, inView } = useInView()
-
-  return (
-    <section
-      ref={ref}
-      className={`section-hidden ${inView ? 'section-visible' : ''}`}
-      style={{ transitionDelay: '80ms' }}
-    >
-      <div className="mb-3">
-        <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-tertiary)' }}>
-          Section 05
-        </p>
-        <h2 className="text-xl font-bold mt-1" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
-          Why today's heat is different
-        </h2>
-      </div>
-
-      <div className="hs-card p-6 sm:p-8">
-        <div className="grid gap-4 sm:grid-cols-3">
-          {[
-            { label: 'Temperature Severity', value: heatData?.riskFactors.temperature ?? 0, icon: Thermometer, desc: 'Thermal stress from current temperature' },
-            { label: 'Historical Anomaly', value: heatData?.riskFactors.historicalGap ?? 0, icon: Activity, desc: 'Deviation from 7-day baseline' },
-            { label: 'Heat Exposure Duration', value: heatData?.riskFactors.heatDuration ?? 0, icon: Sun, desc: 'Persistence of dangerous conditions' },
-          ].map(({ label, value, icon: Icon, desc }) => (
-            <div
-              key={label}
-              className="rounded-2xl p-5"
-              style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <Icon className="size-4" style={{ color: 'var(--text-tertiary)' }} />
-                <span
-                  className="font-mono text-base font-black"
-                  style={{ color: value >= 70 ? theme.ringColor : 'var(--text-primary)' }}
-                >
-                  {loading ? '--' : `${value}`}
-                </span>
-              </div>
-              <p className="text-sm font-semibold mb-1.5" style={{ color: 'var(--text-primary)' }}>{label}</p>
-              <p className="text-[11px] mb-3" style={{ color: 'var(--text-tertiary)' }}>{desc}</p>
-              <div className="h-1.5 overflow-hidden rounded-full" style={{ background: 'var(--border-subtle)' }}>
-                <div
-                  className="h-full rounded-full transition-all duration-1000"
-                  style={{
-                    width: loading ? '0%' : inView ? `${Math.min(100, value)}%` : '0%',
-                    background: value >= 70
-                      ? `linear-gradient(90deg, ${theme.ringColor}70, ${theme.ringColor})`
-                      : 'var(--accent-cyan)',
-                    transitionDelay: '400ms',
-                  }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-5 flex items-center justify-between pt-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-          <span className="text-sm font-semibold" style={{ color: 'var(--text-tertiary)' }}>Combined AI Risk Score</span>
-          <span className="font-mono text-xl font-black" style={{ color: theme.ringColor }}>
-            {loading ? '--' : `${riskScore}/100`}
-          </span>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-// ── SAFETY CHECKLIST ───────────────────────────────────────────────
-function SafetySection({ checkedTips, setCheckedTips }: {
-  checkedTips: Record<number, boolean>
-  setCheckedTips: React.Dispatch<React.SetStateAction<Record<number, boolean>>>
-}) {
-  const { ref, inView } = useInView()
-
-  const tips = [
-    { icon: Droplets, title: 'Stay Hydrated', desc: 'Drink water and electrolytes regularly' },
-    { icon: Sun, title: 'Avoid Direct Sunlight', desc: 'Limit prolonged exposure during peak hours' },
-    { icon: Wind, title: 'Seek Cool Shade', desc: 'Take breaks in air-conditioned spaces' },
-    { icon: Clock, title: 'Limit Strenuous Activity', desc: 'Avoid heavy exercise during peak heat' },
-    { icon: ShieldCheck, title: 'Dress Appropriately', desc: 'Lightweight, loose, light-colored clothing' },
-    { icon: Route, title: 'Check on Others', desc: 'Monitor vulnerable family members and neighbors' },
-  ]
-
-  return (
-    <section
-      id="safety"
-      ref={ref}
-      className={`section-hidden ${inView ? 'section-visible' : ''}`}
-      style={{ transitionDelay: '60ms' }}
-    >
-      <div className="mb-3">
-        <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-tertiary)' }}>
-          Section 06
-        </p>
-        <h2 className="text-xl font-bold mt-1" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
-          Stay safe
-        </h2>
-      </div>
-
-      <div className="hs-card p-6 sm:p-8">
-        <div className="flex items-center justify-between mb-6">
-          <p className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>
-            Tap to mark completed
-          </p>
-          <Droplets className="size-5" style={{ color: 'var(--accent-cyan)' }} />
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {tips.map(({ icon: Icon, title, desc }, idx) => {
-            const isChecked = Boolean(checkedTips[idx])
-            return (
-              <button
-                key={title}
-                type="button"
-                onClick={() => setCheckedTips(prev => ({ ...prev, [idx]: !prev[idx] }))}
-                className="flex items-start gap-3.5 rounded-2xl p-4 text-left transition-all"
-                style={{
-                  background: isChecked ? 'rgba(74,222,128,0.08)' : 'var(--bg-elevated)',
-                  border: isChecked ? '1px solid rgba(74,222,128,0.25)' : '1px solid var(--border-subtle)',
-                  minHeight: 72,
-                }}
-              >
-                <div
-                  className="grid size-9 place-items-center rounded-xl flex-shrink-0 mt-0.5 transition-all"
-                  style={{
-                    background: isChecked ? 'rgba(74,222,128,0.15)' : 'var(--border-subtle)',
-                  }}
-                >
-                  {isChecked
-                    ? <CheckCircle2 className="size-5" style={{ color: '#4ade80' }} />
-                    : <Icon className="size-5" style={{ color: 'var(--text-tertiary)' }} />
-                  }
-                </div>
-                <div>
-                  <p className="text-sm font-semibold" style={{ color: isChecked ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-                    {title}
-                  </p>
-                  <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
-                    {desc}
-                  </p>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-    </section>
-  )
-}
-
 // ═══════════════════════════════════════════════════════════════════
-// MAIN DASHBOARD
+// MAIN DASHBOARD COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 export function HeatShieldDashboard() {
   const geo = useGeolocation(DEFAULT_US_LOCATION.lat, DEFAULT_US_LOCATION.lon)
+  const protection = useLiveHeatProtection()
   const [selectedLocation, setSelectedLocation] = useState(DEFAULT_US_LOCATION)
   const [heatData, setHeatData] = useState<HeatRiskResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1453,9 +1043,13 @@ export function HeatShieldDashboard() {
 
   const [saferData, setSaferData] = useState<NearbySaferResponse | null>(null)
   const [saferLoading, setSaferLoading] = useState(false)
-  const [saferError, setSaferError] = useState<string | null>(null)
 
-  const [checkedTips, setCheckedTips] = useState<Record<number, boolean>>({ 0: true, 1: true })
+  // Settings State
+  const [tempUnit, setTempUnit] = useState<TempUnit>('C')
+  const [selectedActivity, setSelectedActivity] = useState<string>('walking')
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(false)
+  const [alertThreshold, setAlertThreshold] = useState<number>(60)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
   const [bootPhase, setBootPhase] = useState<number>(-1)
   const [bootComplete, setBootComplete] = useState(false)
@@ -1463,6 +1057,7 @@ export function HeatShieldDashboard() {
 
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now())
   const [elapsedDisplay, setElapsedDisplay] = useState(0)
+
   useEffect(() => {
     const id = setInterval(() => setElapsedDisplay(Math.round((Date.now() - lastUpdateTime) / 1000)), 1000)
     return () => clearInterval(id)
@@ -1485,7 +1080,10 @@ export function HeatShieldDashboard() {
     setError(null)
     setErrorType(null)
     getHeatRisk(selectedLocation.lat, selectedLocation.lon)
-      .then((data) => { setHeatData(data); setLastUpdateTime(Date.now()) })
+      .then((data) => {
+        setHeatData(data)
+        setLastUpdateTime(Date.now())
+      })
       .catch((err: unknown) => {
         setHeatData(null)
         setError(err instanceof Error && err.message ? err.message : 'Unable to reach HeatShield API.')
@@ -1508,53 +1106,61 @@ export function HeatShieldDashboard() {
     setSaferData(null)
   }
 
-  const handleRequestGpsLocation = () => {
-    geo.requestLocation()
-    if (geo.latitude && geo.longitude) {
-      if (isUSLocation(geo.latitude, geo.longitude)) {
-        setSelectedLocation({ lat: geo.latitude, lon: geo.longitude, name: 'My GPS Location' })
-      } else {
-        setError('FortyGuard currently supports US locations only.')
-        setErrorType('location')
-      }
+  const handleRequestGpsLocation = async () => {
+    setLoading(true)
+    setError(null)
+    setErrorType(null)
+    try {
+      const coords = await geo.requestLocation()
+      setSelectedLocation({
+        lat: coords.lat,
+        lon: coords.lon,
+        name: `Device GPS (${coords.lat.toFixed(2)}°, ${coords.lon.toFixed(2)}°)`,
+      })
+      setSaferData(null)
+    } catch (err: unknown) {
+      setLoading(false)
+      setError(err instanceof Error && err.message ? err.message : 'Unable to determine device location.')
+      setErrorType('location')
     }
   }
 
-  const handleFetchSafer = async () => {
-    if (!isSelectedLocationInUS) return
-    setSaferLoading(true)
-    setSaferError(null)
-    try {
-      const data = await getNearbySafer(selectedLocation.lat, selectedLocation.lon)
-      setSaferData(data)
-    } catch {
-      setSaferError('Could not fetch nearby safer location. Please try again.')
-    } finally {
-      setSaferLoading(false)
+  const handleRequestNotificationPermission = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      const perm = await Notification.requestPermission()
+      return perm === 'granted'
     }
+    return false
   }
 
   const riskLevel = heatData?.current.riskLevel ?? 'unknown'
   const riskLabel = heatData?.current.riskLabel ?? 'Analyzing…'
   const riskScore = heatData?.current.riskScore ?? 0
-  const theme = getRiskTheme(riskLevel)
 
   if (!bootComplete) {
     return <BootOverlay phase={bootPhase} heatData={loading ? null : heatData} />
   }
 
+  // Merge live data into display when protect mode is active
+  const displayData = protection.isProtecting && protection.liveData ? protection.liveData : heatData
+  const displayLoading = protection.isProtecting && protection.liveLoading ? true : loading
+
   return (
-    <div className="min-h-screen pb-24 md:pb-10" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)', transition: 'background-color 0.25s ease, color 0.25s ease' }}>
+    <div className="min-h-screen pb-24 md:pb-12" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)', transition: 'background-color 0.25s ease' }}>
       {/* Navbar */}
       <Navbar
         selectedCityName={selectedLocation.name}
         onSelectCity={handleSelectCity}
         onRequestGps={handleRequestGpsLocation}
+        tempUnit={tempUnit}
+        setTempUnit={setTempUnit}
+        selectedActivity={selectedActivity}
+        setSelectedActivity={setSelectedActivity}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       <main className="mx-auto max-w-[1280px] px-4 py-6 sm:px-6 lg:px-8 space-y-8">
-
-        {/* Page title bar */}
+        {/* Page Title Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 animate-slide-up">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -1562,7 +1168,7 @@ export function HeatShieldDashboard() {
                 className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest"
                 style={{ background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.2)', color: '#4ade80' }}
               >
-                🇺🇸 US Coverage
+                🇺🇸 US Coverage Active
               </span>
               {heatData && (
                 <span
@@ -1574,30 +1180,32 @@ export function HeatShieldDashboard() {
               )}
             </div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight" style={{ color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>
-              Heat Risk Intelligence
+              Heat Risk Intelligence Platform
             </h1>
             <p className="text-sm mt-0.5 font-medium" style={{ color: 'var(--text-secondary)' }}>
-              AI-powered hyper-local thermal analysis · FortyGuard API
+              Explainable AI Hyper-Local Thermal Analysis · FortyGuard Engine
             </p>
           </div>
+
           <div className="flex items-center gap-2">
             <button
               onClick={handleRequestGpsLocation}
-              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all"
+              disabled={geo.loading}
+              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all border disabled:opacity-50"
               style={{
                 background: 'var(--bg-elevated)',
-                border: '1px solid var(--border-default)',
+                borderColor: 'var(--border-default)',
                 color: 'var(--accent-cyan)',
               }}
             >
-              <Crosshair className="size-3.5" />
-              Use GPS
+              <Crosshair className={`size-3.5 ${geo.loading ? 'animate-spin' : ''}`} />
+              {geo.loading ? 'Locating Device…' : 'Use Device GPS'}
             </button>
             <button
               onClick={fetchHeatData}
               disabled={loading}
-              className="grid size-10 place-items-center rounded-xl transition-all disabled:opacity-50"
-              style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}
+              className="grid size-10 place-items-center rounded-xl transition-all disabled:opacity-50 border"
+              style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
               title="Refresh data"
             >
               <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
@@ -1605,173 +1213,123 @@ export function HeatShieldDashboard() {
           </div>
         </div>
 
-        {/* Non-US warning */}
-        {!isSelectedLocationInUS && (
-          <div
-            className="rounded-2xl p-5 animate-slide-up"
-            style={{ background: 'rgba(250,204,21,0.07)', border: '1px solid rgba(250,204,21,0.2)' }}
-          >
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="size-5 flex-shrink-0 mt-0.5" style={{ color: '#facc15' }} />
-              <div>
-                <h3 className="text-sm font-bold mb-1" style={{ color: '#facc15' }}>Unsupported Location</h3>
-                <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
-                  FortyGuard supports US locations only. Select a US city to access live heat-risk intelligence.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {US_PRESET_CITIES.map((city) => (
-                    <button
-                      key={city.name}
-                      type="button"
-                      onClick={() => handleSelectCity(city.lat, city.lon, city.name)}
-                      className="rounded-xl px-3 py-2 text-xs font-bold transition-all"
-                      style={{
-                        background: 'var(--bg-elevated)',
-                        border: '1px solid var(--border-default)',
-                        color: 'var(--text-primary)',
-                        minHeight: 40,
-                      }}
-                    >
-                      {city.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* SECTION 0.5: PROTECT ME */}
+        <ProtectMePanel protection={protection} tempUnit={tempUnit} />
 
-        {/* API Error */}
-        {error && isSelectedLocationInUS && !loading && (
-          <div
-            className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 rounded-2xl p-4 animate-slide-up"
-            style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
-          >
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="size-5 flex-shrink-0" style={{ color: '#f87171' }} />
-              <div>
-                <p className="text-sm font-bold" style={{ color: '#f87171' }}>
-                  {errorType === 'api' ? 'API Unavailable' : 'Service Error'}
-                </p>
-                <p className="text-xs mt-0.5" style={{ color: '#f87171' }}>{error}</p>
-              </div>
-            </div>
-            <button
-              onClick={fetchHeatData}
-              className="flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all"
-              style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
-            >
-              <RefreshCw className="size-3.5" />
-              Retry
-            </button>
-          </div>
-        )}
-
-        {/* High heat advisory */}
-        {heatData && heatData.current.riskScore >= 60 && !loading && (
-          <div
-            className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 rounded-2xl p-5 animate-slide-up"
-            style={{ background: 'rgba(251,146,60,0.08)', border: '1px solid rgba(251,146,60,0.2)' }}
-          >
-            <div className="flex items-start gap-3">
-              <div
-                className="grid size-9 place-items-center rounded-full flex-shrink-0"
-                style={{ background: 'rgba(251,146,60,0.15)' }}
-              >
-                <AlertTriangle className="size-4" style={{ color: '#fb923c' }} />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-extrabold uppercase tracking-wider" style={{ color: '#fb923c' }}>
-                    High Heat Advisory
-                  </span>
-                  <span
-                    className="rounded-full px-2 py-0.5 text-[10px] font-bold"
-                    style={{ background: 'rgba(251,146,60,0.15)', color: '#fb923c' }}
-                  >
-                    Risk: {heatData.current.riskScore}/100
-                  </span>
-                </div>
-                <p className="text-sm font-medium leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                  {heatData.recommendation}
-                </p>
-              </div>
-            </div>
-            <a
-              href="#safety"
-              onClick={(e) => { e.preventDefault(); document.getElementById('safety')?.scrollIntoView({ behavior: 'smooth' }) }}
-              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all flex-shrink-0"
-              style={{
-                background: 'rgba(251,146,60,0.12)',
-                border: '1px solid rgba(251,146,60,0.25)',
-                color: '#fb923c',
-                minHeight: 40,
-              }}
-            >
-              Safety checklist <ChevronDown className="size-3.5" />
-            </a>
-          </div>
-        )}
-
-        {/* SECTION 1: HERO */}
+        {/* SECTION 1: HERO DASHBOARD */}
         <HeroSection
-          heatData={heatData}
-          loading={loading}
-          riskLevel={riskLevel}
-          riskScore={riskScore}
-          riskLabel={riskLabel}
+          heatData={displayData}
+          loading={displayLoading}
+          riskLevel={displayData?.current.riskLevel ?? riskLevel}
+          riskScore={displayData?.current.riskScore ?? riskScore}
+          riskLabel={displayData?.current.riskLabel ?? riskLabel}
           selectedLocation={selectedLocation}
           elapsedDisplay={elapsedDisplay}
           bootComplete={bootComplete}
+          tempUnit={tempUnit}
+          selectedActivity={selectedActivity}
         />
 
-        {/* SECTION 2: AI EXPLAINABILITY */}
-        <AIExplainabilitySection heatData={heatData} loading={loading} />
+        {/* SECTION 2: AI EXPLANABILITY PANEL */}
+        <AIExplanationPanel heatData={displayData} loading={displayLoading} tempUnit={tempUnit} />
 
-        {/* SECTION 3 + 4: FORECAST */}
-        <ForecastSection heatData={heatData} loading={loading} />
+        {/* SECTION 3: 12-HOUR FORECAST */}
+        <ForecastSection heatData={displayData} loading={displayLoading} tempUnit={tempUnit} />
 
-        {/* SECTION 5: MAP */}
-        <MapSection
-          latitude={selectedLocation.lat}
-          longitude={selectedLocation.lon}
-          locationName={selectedLocation.name}
-          onSelect={(lat, lon) => setSelectedLocation({ lat, lon, name: `Custom Spot (${lat.toFixed(2)}, ${lon.toFixed(2)})` })}
+        {/* SECTION 4: SMART OUTDOOR PLANNER ("Plan My Day") */}
+        <OutdoorPlanner heatData={heatData} tempUnit={tempUnit} />
+
+        {/* SECTION 5: INTERACTIVE HEAT MAP */}
+        <section id="map" className="hs-card overflow-hidden">
+          <div className="p-6 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+            <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+              Interactive Heat-Intelligence Map
+            </h2>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+              Toggle thermal layers and inspect nearby hotspots
+            </p>
+          </div>
+
+          <div className="w-full h-[440px] min-h-[440px]">
+            <HeatMap
+              latitude={selectedLocation.lat}
+              longitude={selectedLocation.lon}
+              currentTemp={heatData?.current.temperature}
+              feelsLikeTemp={heatData?.current.feelsLike}
+              saferTemp={saferData?.safer_temp_c}
+              riskLevel={riskLevel}
+              riskScore={riskScore}
+              tempUnit={tempUnit}
+              onSelect={(lat, lon) => setSelectedLocation({ lat, lon, name: `Custom Spot (${lat.toFixed(2)}, ${lon.toFixed(2)})` })}
+            />
+          </div>
+        </section>
+
+        {/* SECTION 6: HEAT-SAFE ROUTE CALCULATOR */}
+        <HeatRouteCalculator saferData={saferData} currentTemp={heatData?.current.temperature ?? 30} tempUnit={tempUnit} />
+
+        {/* SECTION 7: LOCATION COMPARE */}
+        <LocationCompare
+          currentCityName={selectedLocation.name}
+          currentLat={selectedLocation.lat}
+          currentLon={selectedLocation.lon}
+          tempUnit={tempUnit}
+        />
+
+        {/* SECTION 8: TEMPERATURE VS FEELS LIKE & HISTORICAL COMPARISON */}
+        <div className="grid gap-6 lg:grid-cols-2">
+          <TempVsFeelsLikeCard heatData={heatData} loading={loading} tempUnit={tempUnit} />
+          <HistoricalComparisonCard heatData={heatData} loading={loading} tempUnit={tempUnit} />
+        </div>
+
+        {/* SECTION 9: SMART HEAT ALERTS */}
+        <HeatAlertsCenter
           heatData={heatData}
-          saferData={saferData}
-          loading={loading}
+          notificationsEnabled={notificationsEnabled}
+          setNotificationsEnabled={setNotificationsEnabled}
+          onRequestNotificationPermission={handleRequestNotificationPermission}
         />
 
-        {/* SECTION 6: COOLER PATH + HISTORICAL */}
-        <CoolerPathSection
-          heatData={heatData}
-          saferData={saferData}
-          saferLoading={saferLoading}
-          saferError={saferError}
-          onFetchSafer={handleFetchSafer}
-          isUS={isSelectedLocationInUS}
-        />
+        {/* SECTION 10: GAMIFICATION & BADGES */}
+        <GamificationBadge />
 
-        {/* SECTION 7: RISK FACTORS */}
-        <RiskFactorsSection
-          heatData={heatData}
-          loading={loading}
-          riskScore={riskScore}
-          theme={theme}
-        />
+        {/* Footer & Disclaimer */}
+        <footer className="space-y-4 py-8 text-xs border-t" style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-tertiary)' }}>
+          <div className="flex flex-col sm:flex-row justify-between gap-3 font-semibold">
+            <span className="flex items-center gap-2">
+              <ShieldCheck className="size-4" style={{ color: 'var(--accent-cyan)' }} />
+              HeatShield AI · Powered by FortyGuard US Hyper-Local API · heatshield-risk-v1
+            </span>
+            <span className="font-mono">Team Nexio · FortyGuard Hackathon 2026</span>
+          </div>
 
-        {/* SECTION 8: SAFETY CHECKLIST */}
-        <SafetySection checkedTips={checkedTips} setCheckedTips={setCheckedTips} />
-
-        {/* Footer */}
-        <footer className="flex flex-col sm:flex-row justify-between gap-3 py-8 text-xs" style={{ borderTop: '1px solid var(--border-subtle)', color: 'var(--text-tertiary)' }}>
-          <span className="flex items-center gap-2 font-semibold">
-            <ShieldCheck className="size-3.5" style={{ color: 'var(--accent-cyan)' }} />
-            HeatShield AI · Powered by FortyGuard US Hyper-Local API · heatshield-risk-v1
-          </span>
-          <span className="font-mono">Team Nexio · Hackathon 2026</span>
+          <p className="text-[10px] leading-relaxed max-w-3xl">
+            Disclaimer: HeatShield provides heat-risk decision support and does not replace official weather warnings, occupational safety guidance, or medical advice.
+          </p>
         </footer>
       </main>
+
+      {/* Heat Warning Toast */}
+      <HeatWarningToast
+        heatData={displayData}
+        tempUnit={tempUnit}
+        isLiveProtecting={protection.isProtecting}
+      />
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        tempUnit={tempUnit}
+        setTempUnit={setTempUnit}
+        selectedActivity={selectedActivity}
+        setSelectedActivity={setSelectedActivity}
+        notificationsEnabled={notificationsEnabled}
+        setNotificationsEnabled={setNotificationsEnabled}
+        alertThreshold={alertThreshold}
+        setAlertThreshold={setAlertThreshold}
+        onRequestNotificationPermission={handleRequestNotificationPermission}
+      />
     </div>
   )
 }
