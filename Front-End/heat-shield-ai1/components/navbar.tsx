@@ -484,15 +484,38 @@ export function Navbar({
               })}
             </div>
 
-            <button
-              type="button"
-              onClick={() => { setTabletNavOpen(false); onOpenSettings() }}
-              className="flex w-full items-center justify-center gap-2 py-3 rounded-2xl text-xs font-bold transition-all border"
-              style={{ background: 'rgba(56,189,248,0.1)', borderColor: 'rgba(56,189,248,0.3)', color: 'var(--accent-cyan)' }}
-            >
-              <Sliders className="size-4" />
-              Settings (°C / °F & Theme)
-            </button>
+            <div className="space-y-2 mt-3 pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+              <div className="flex items-center justify-between p-3 rounded-2xl border" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="grid size-8 place-items-center rounded-full flex-shrink-0" style={{ background: 'rgba(56,189,248,0.15)', color: 'var(--accent-cyan)' }}>
+                    <User className="size-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold truncate" style={{ color: 'var(--text-primary)' }}>{user?.name || 'Demo Account'}</p>
+                    <p className="text-[10px] truncate" style={{ color: 'var(--text-tertiary)' }}>{user?.email || 'demo@heatshield.ai'}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setTabletNavOpen(false); logout() }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold flex-shrink-0"
+                  style={{ color: '#ef4444', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)' }}
+                >
+                  <LogOut className="size-3.5" />
+                  Sign Out
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => { setTabletNavOpen(false); onOpenSettings() }}
+                className="flex w-full items-center justify-center gap-2 py-3 rounded-2xl text-xs font-bold transition-all border"
+                style={{ background: 'rgba(56,189,248,0.1)', borderColor: 'rgba(56,189,248,0.3)', color: 'var(--accent-cyan)' }}
+              >
+                <Sliders className="size-4" />
+                Settings (°C / °F & Theme)
+              </button>
+            </div>
           </div>
         </div>
       )}

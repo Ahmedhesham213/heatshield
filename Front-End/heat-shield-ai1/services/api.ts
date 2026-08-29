@@ -335,15 +335,15 @@ function mapHeatRiskData(data: HeatRiskApiResponse, fallbackLat: number, fallbac
     },
     forecast: Array.isArray(data.forecast_12h)
       ? data.forecast_12h.map((item) => ({
-          hourOffset: toNumber(item.hour_offset, 0),
-          time: toStringOrDefault(item.time, '--:--'),
-          temperature: toNumber(item.temp_c, 0),
-          level: toStringOrDefault(item.level, 'unknown'),
-          emoji: toStringOrDefault(item.emoji, '—'),
-          label: toStringOrDefault(item.label, 'Unknown'),
-          riskScore: toNumber(item.risk_score, 0),
-          thermalScore: toNumber(item.thermal_score, 0),
-        }))
+        hourOffset: toNumber(item.hour_offset, 0),
+        time: toStringOrDefault(item.time, '--:--'),
+        temperature: toNumber(item.temp_c, 0),
+        level: toStringOrDefault(item.level, 'unknown'),
+        emoji: toStringOrDefault(item.emoji, '—'),
+        label: toStringOrDefault(item.label, 'Unknown'),
+        riskScore: toNumber(item.risk_score, 0),
+        thermalScore: toNumber(item.thermal_score, 0),
+      }))
       : [],
     recommendation: toStringOrDefault(data.ai_recommendation, 'No recommendation available.'),
     explainability: mapExplainability(data.explainability),
@@ -358,7 +358,7 @@ export function generateDeterministicFallback(lat: number, lon: number): HeatRis
   const baseTemp = Math.max(18, Math.round(38 - absLat * 0.3 + (Math.sin(lon) * 3)))
   const feelsLike = baseTemp + 4
   const riskScore = Math.min(98, Math.max(15, Math.round(baseTemp * 1.6)))
-  
+
   let riskLevel = 'moderate'
   let riskLabel = 'Moderate'
   let riskEmoji = '⚠️'
@@ -386,7 +386,7 @@ export function generateDeterministicFallback(lat: number, lon: number): HeatRis
     location: { lat, lon },
     current: {
       temperature: baseTemp,
-      temperatureF: Math.round((baseTemp * 9/5) + 32),
+      temperatureF: Math.round((baseTemp * 9 / 5) + 32),
       feelsLike,
       riskScore,
       riskLevel,
