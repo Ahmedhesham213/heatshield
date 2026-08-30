@@ -52,13 +52,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const savedToken = localStorage.getItem(AUTH_KEY)
     if (!savedToken) {
-      // Default to demo user for instant hackathon access
-      setUser({
-        id: 1,
-        name: 'Mirey User',
-        email: DEMO_EMAIL,
-        initials: 'MU',
-      })
+      setUser(null)
+      setToken(null)
       setIsLoading(false)
       return
     }
@@ -71,12 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {
         localStorage.removeItem(AUTH_KEY)
         setToken(null)
-        setUser({
-          id: 1,
-          name: 'Mirey User',
-          email: DEMO_EMAIL,
-          initials: 'MU',
-        })
+        setUser(null)
       })
       .finally(() => {
         setIsLoading(false)
