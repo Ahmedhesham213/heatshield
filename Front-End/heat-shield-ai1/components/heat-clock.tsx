@@ -143,7 +143,7 @@ export function HeatClock({ heatData, loading, tempUnit }: HeatClockProps) {
                   </span>
 
                   {/* Label badges */}
-                  <div className="w-24 flex-shrink-0">
+                  <div className="hidden xs:flex flex-shrink-0 justify-end min-w-[50px] sm:w-20">
                     {isNow && (
                       <span
                         className="inline-flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-full"

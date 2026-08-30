@@ -229,7 +229,7 @@ export function HeatMap({
   ], [latitude, longitude, currentTemp, riskScore])
 
   return (
-    <div className="relative w-full overflow-hidden rounded-2xl border border-border/60" style={{ height: '440px', minHeight: '440px' }}>
+    <div className="relative w-full overflow-hidden rounded-2xl border border-border/60" style={{ height: '100%', minHeight: 'inherit' }}>
       {/* Responsive Top Control Bar */}
       <div className="absolute top-2.5 left-2.5 right-2.5 z-[1000] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pointer-events-none">
         {/* Layer Switcher */}
@@ -293,11 +293,12 @@ export function HeatMap({
       </div>
 
       <MapContainer
+        key={`map-${latitude.toFixed(3)}-${longitude.toFixed(3)}`}
         center={[latitude, longitude]}
         zoom={14}
         scrollWheelZoom
         className="z-10"
-        style={{ height: '100%', width: '100%', minHeight: '440px' }}
+        style={{ height: '100%', width: '100%' }}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'

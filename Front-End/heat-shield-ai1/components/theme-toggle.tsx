@@ -44,8 +44,8 @@ export default function ThemeToggle() {
   if (!mounted) {
     return (
       <div
-        className="size-8 rounded-full"
-        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+        className="size-9 sm:size-8 rounded-xl"
+        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
       />
     )
   }
@@ -54,16 +54,16 @@ export default function ThemeToggle() {
     <button
       type="button"
       onClick={onToggle}
-      aria-label="Toggle color theme"
-      className="grid size-8 place-items-center rounded-full transition-all"
+      aria-label="Toggle dark and light theme mode"
+      className="grid size-9 sm:size-8 place-items-center rounded-xl transition-all active:scale-95 border flex-shrink-0"
       style={{
-        background: theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-        border: theme === 'dark' ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)',
-        color: theme === 'dark' ? '#facc15' : '#080b10',
+        background: theme === 'dark' ? 'rgba(250,204,21,0.12)' : 'rgba(14,165,233,0.12)',
+        borderColor: theme === 'dark' ? 'rgba(250,204,21,0.3)' : 'rgba(14,165,233,0.3)',
+        color: theme === 'dark' ? '#facc15' : '#0284c7',
       }}
       title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
     >
-      {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+      {theme === 'dark' ? <Sun className="size-4 stroke-[2.5]" /> : <Moon className="size-4 stroke-[2.5]" />}
     </button>
   )
 }

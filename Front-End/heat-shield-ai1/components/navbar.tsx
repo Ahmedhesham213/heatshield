@@ -106,24 +106,24 @@ export function Navbar({
         className="sticky top-0 z-30 transition-all glass-navbar"
         style={{ height: 64 }}
       >
-        <div className="mx-auto flex h-full max-w-[1280px] items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-full max-w-[1280px] items-center justify-between px-2.5 sm:px-6 lg:px-8">
           {/* Brand Logo */}
           <a
             href="#dashboard"
             onClick={(e) => handleNavClick(e, 'dashboard')}
-            className="flex items-center gap-2.5 group"
+            className="flex items-center gap-2 group flex-shrink-0"
           >
             <div
-              className="grid size-9 place-items-center rounded-xl transition-transform group-hover:scale-105"
+              className="grid size-8 sm:size-9 place-items-center rounded-xl transition-transform group-hover:scale-105"
               style={{ background: 'rgba(56,189,248,0.15)', border: '1px solid var(--border-default)' }}
             >
-              <ShieldCheck className="size-5" style={{ color: 'var(--accent-cyan)' }} />
+              <ShieldCheck className="size-4.5 sm:size-5" style={{ color: 'var(--accent-cyan)' }} />
             </div>
             <div className="flex flex-col">
-              <span className="text-base font-bold tracking-tight leading-none" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+              <span className="text-sm sm:text-base font-bold tracking-tight leading-none" style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
                 HeatShield
               </span>
-              <span className="text-[9px] font-extrabold tracking-widest uppercase mt-0.5" style={{ color: 'var(--accent-cyan)' }}>
+              <span className="hidden xs:inline-block text-[9px] font-extrabold tracking-widest uppercase mt-0.5" style={{ color: 'var(--accent-cyan)' }}>
                 Climate Intelligence AI
               </span>
             </div>
@@ -157,20 +157,7 @@ export function Navbar({
           </nav>
 
           {/* Right Controls */}
-          <div className="flex items-center gap-2">
-            {/* Quick Unit Toggle */}
-            <button
-              onClick={() => setTempUnit(tempUnit === 'C' ? 'F' : 'C')}
-              className="flex items-center justify-center rounded-xl px-2.5 py-1.5 text-xs font-black transition-all border"
-              style={{
-                background: 'var(--bg-elevated)',
-                borderColor: 'var(--border-subtle)',
-                color: 'var(--accent-cyan)',
-              }}
-              title="Toggle Temperature Unit (°C / °F)"
-            >
-              °{tempUnit}
-            </button>
+          <div className="flex items-center gap-1.5 xs:gap-2">
 
             {/* Activity Profile Selector */}
             <div className="relative hidden sm:block">
@@ -226,7 +213,7 @@ export function Navbar({
               <button
                 type="button"
                 onClick={() => setCityDropdownOpen((v) => !v)}
-                className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all border"
+                className="flex items-center gap-1 rounded-xl px-2 py-1.5 xs:px-3 text-xs font-semibold transition-all border"
                 style={{
                   background: 'var(--bg-elevated)',
                   borderColor: 'var(--border-subtle)',
@@ -235,8 +222,8 @@ export function Navbar({
                 aria-label="Select US Location"
               >
                 <MapPin className="size-3.5 flex-shrink-0" style={{ color: 'var(--accent-cyan)' }} />
-                <span className="truncate max-w-[100px] sm:max-w-[130px]">{selectedCityName}</span>
-                <ChevronDown className="size-3" style={{ color: 'var(--text-tertiary)' }} />
+                <span className="truncate max-w-[70px] min-[360px]:max-w-[100px] xs:max-w-[140px] sm:max-w-[180px]">{selectedCityName}</span>
+                <ChevronDown className="size-3 flex-shrink-0" style={{ color: 'var(--text-tertiary)' }} />
               </button>
 
               {cityDropdownOpen && (
@@ -506,15 +493,31 @@ export function Navbar({
                 </button>
               </div>
 
+            <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
               <button
                 type="button"
                 onClick={() => { setTabletNavOpen(false); onOpenSettings() }}
-                className="flex w-full items-center justify-center gap-2 py-3 rounded-2xl text-xs font-bold transition-all border"
+                className="flex items-center justify-center gap-1.5 py-3 rounded-2xl text-xs font-bold transition-all border"
                 style={{ background: 'rgba(56,189,248,0.1)', borderColor: 'rgba(56,189,248,0.3)', color: 'var(--accent-cyan)' }}
               >
-                <Sliders className="size-4" />
-                Settings (°C / °F & Theme)
+                <Sliders className="size-3.5" />
+                Settings
               </button>
+
+              <button
+                type="button"
+                onClick={() => setTempUnit(tempUnit === 'C' ? 'F' : 'C')}
+                className="flex items-center justify-center gap-1.5 py-3 rounded-2xl text-xs font-bold transition-all border"
+                style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+              >
+                <span>Unit:</span>
+                <span className="font-black text-sky-400">°{tempUnit}</span>
+              </button>
+
+              <div className="flex items-center justify-center py-2 rounded-2xl border" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
+                <ThemeToggle />
+              </div>
+            </div>
             </div>
           </div>
         </div>

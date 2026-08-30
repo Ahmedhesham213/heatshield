@@ -33,6 +33,7 @@ import { HeatClock } from '@/components/heat-clock'
 import { HeatExposureMeter } from '@/components/heat-exposure-meter'
 import { HeatTrendCard } from '@/components/heat-trend-card'
 import { BeforeYouGo } from '@/components/before-you-go'
+import { HeatRouteCalculator } from '@/components/heat-route-calculator'
 import { useGeolocation } from '@/hooks/use-geolocation'
 import { useLiveHeatProtection } from '@/hooks/use-live-heat-protection'
 import {
@@ -578,6 +579,9 @@ export function HeatShieldDashboard() {
   const [bootComplete, setBootComplete] = useState(false)
   const hasBooted = useRef(false)
 
+  // Mobile tab state (used in scrollTo for future tab switching)
+  const [activeMobileTab, setActiveMobileTab] = useState<string>('copilot')
+
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now())
   const [elapsedDisplay, setElapsedDisplay] = useState(0)
 
@@ -608,6 +612,10 @@ export function HeatShieldDashboard() {
         setErrorType('api')
       })
       .finally(() => setLoading(false))
+
+    getNearbySafer(selectedLocation.lat, selectedLocation.lon, 500)
+      .then((safer) => setSaferData(safer))
+      .catch(() => setSaferData(null))
   }, [selectedLocation.lat, selectedLocation.lon])
 
   useEffect(() => {
@@ -758,7 +766,7 @@ export function HeatShieldDashboard() {
         <WhatShouldIDo heatData={displayData} loading={displayLoading} tempUnit={tempUnit} />
 
         {/* ── SECTION 3: Heat Trend + Exposure side by side on desktop ── */}
-        <div className="grid grid-cols-1 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <HeatTrendCard heatData={displayData} loading={displayLoading} />
           <HeatExposureMeter heatData={displayData} loading={displayLoading} selectedActivity={selectedActivity} />
         </div>
@@ -779,12 +787,22 @@ export function HeatShieldDashboard() {
         {/* ── SECTION 6: Heat Mission ── */}
         <HeatMission heatData={heatData} tempUnit={tempUnit} />
 
-        {/* ── SECTION 7: Heat Clock ── */}
+        {/* ── SECTION 7: Outdoor Smart Planner ── */}
+        <OutdoorPlanner heatData={displayData} tempUnit={tempUnit} />
+
+        {/* ── SECTION 8: Heat Safe Route Calculator ── */}
+        <HeatRouteCalculator
+          saferData={saferData}
+          currentTemp={displayData?.current.temperature ?? 30}
+          tempUnit={tempUnit}
+        />
+
+        {/* ── SECTION 9: Heat Clock ── */}
         <HeatClock heatData={displayData} loading={displayLoading} tempUnit={tempUnit} />
 
         {/* ── SECTION 8: Heat Radar (Map) ── */}
         <section id="map" className="hs-card overflow-hidden">
-          <div className="p-5 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+          <div className="p-4 sm:p-5 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
             <p className="text-[10px] font-black uppercase tracking-widest mb-1" style={{ color: 'var(--text-tertiary)' }}>
               Live Thermal Intelligence
             </p>
@@ -795,7 +813,7 @@ export function HeatShieldDashboard() {
               Your location surrounded by heat-risk zones — tap to explore
             </p>
           </div>
-          <div className="w-full h-[440px] min-h-[440px]">
+          <div className="w-full" style={{ height: 'clamp(280px, 50vw, 440px)' }}>
             <HeatMap
               latitude={selectedLocation.lat}
               longitude={selectedLocation.lon}

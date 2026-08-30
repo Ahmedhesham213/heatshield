@@ -8,7 +8,6 @@
 .leaflet-container {
   width: 100% !important;
   height: 100% !important;
-  min-height: 440px !important;
   z-index: 1;
 }
 
@@ -216,7 +215,7 @@
   body {
     background-color: var(--bg-base);
     color: var(--text-primary);
-    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-family: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     transition: background-color 0.25s ease, color 0.25s ease;
@@ -224,6 +223,12 @@
 
   button, a {
     touch-action: manipulation;
+  }
+
+  /* Ensure selects match theme */
+  select {
+    appearance: none;
+    -webkit-appearance: none;
   }
 }
 
@@ -291,6 +296,12 @@
 @keyframes glow-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(56,189,248,0.3); }
   50% { box-shadow: 0 0 0 8px rgba(56,189,248,0); }
+}
+
+@keyframes heat-pulse {
+  0% { transform: scale(1); opacity: 0.7; }
+  70% { transform: scale(2); opacity: 0; }
+  100% { transform: scale(2); opacity: 0; }
 }
 
 .animate-thermal-drift {
@@ -557,6 +568,7 @@
   color: var(--text-primary);
   font-size: 0.875rem;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
 }
 
 .form-input-pw {
@@ -598,4 +610,46 @@
 
 .login-submit:hover:not(:disabled) {
   opacity: 0.9;
+}
+
+/* ═══════════════════════════════════════════════════════
+   RESPONSIVE UTILITIES
+═══════════════════════════════════════════════════════ */
+
+/* Prevent text overflow on small screens */
+.truncate-mobile {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Safe area for iOS bottom bar */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Ensure select styling works across browsers */
+select option {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+/* Mobile touch improvements */
+@media (max-width: 768px) {
+  /* Better touch targets */
+  button, a, [role="button"] {
+    min-height: 44px;
+  }
+
+  /* Prevent font size zoom on input focus in iOS */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Specific fix: login and register pages font size (don't zoom on iOS) */
+@media (max-width: 480px) {
+  .form-input {
+    font-size: 16px;
+  }
 }
