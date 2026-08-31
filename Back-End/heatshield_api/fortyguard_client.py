@@ -424,54 +424,130 @@ def _build_small_aoi(lat: float, lon: float, delta_deg: float = 0.02) -> dict:
 # ===========================================================================
 
 
+def _extract_temp_from_result(result: dict, context: str) -> float:
+    """
+    Robustly extract mean temperature (°C) from a FortyGuard heatmap result.
+
+    Tries multiple known response structures:
+      1. result.stats_data.temperature_stats.mean  (primary)
+      2. result.stats_data.mean                    (alternate flat)
+      3. result.temperature_stats.mean             (alternate flat)
+      4. result.stats.mean                         (alternate key)
+
+    Raises RuntimeError with safe diagnostic info if no valid temperature found.
+    """
+    if not isinstance(result, dict):
+        raise RuntimeError(
+            f"[{context}] FortyGuard result is not a dict: {type(result).__name__}"
+        )
+
+    logger.info("[FG][%s] result top-level keys: %s", context, list(result.keys()))
+
+    # --- Attempt 1: stats_data.temperature_stats.mean (primary) ---
+    stats_data = result.get("stats_data")
+    if stats_data and isinstance(stats_data, dict):
+        logger.info("[FG][%s] stats_data keys: %s", context, list(stats_data.keys()))
+        temp_stats = stats_data.get("temperature_stats")
+        if temp_stats and isinstance(temp_stats, dict):
+            logger.info("[FG][%s] temperature_stats values: %s", context, temp_stats)
+            mean = temp_stats.get("mean")
+            if mean is not None and mean != -999:
+                logger.info("[FG][%s] temp_c=%.2f via stats_data.temperature_stats.mean", context, float(mean))
+                return float(mean)
+            else:
+                logger.warning("[FG][%s] temperature_stats.mean is %s (no data)", context, mean)
+
+        # --- Attempt 2: stats_data.mean (flat) ---
+        mean = stats_data.get("mean")
+        if mean is not None and mean != -999:
+            logger.info("[FG][%s] temp_c=%.2f via stats_data.mean", context, float(mean))
+            return float(mean)
+
+    # --- Attempt 3: result.temperature_stats.mean ---
+    temp_stats = result.get("temperature_stats")
+    if temp_stats and isinstance(temp_stats, dict):
+        mean = temp_stats.get("mean")
+        if mean is not None and mean != -999:
+            logger.info("[FG][%s] temp_c=%.2f via result.temperature_stats.mean", context, float(mean))
+            return float(mean)
+
+    # --- Attempt 4: result.stats.mean ---
+    stats = result.get("stats")
+    if stats and isinstance(stats, dict):
+        mean = stats.get("mean")
+        if mean is not None and mean != -999:
+            logger.info("[FG][%s] temp_c=%.2f via result.stats.mean", context, float(mean))
+            return float(mean)
+
+    # Nothing found — log safe diagnostic (no secrets)
+    logger.error(
+        "[FG][%s] No valid temperature found. result truncated: %s",
+        context,
+        str(result)[:500],
+    )
+    raise RuntimeError(
+        f"FortyGuard heatmap returned no temperature data (context={context}). "
+        "Location may not be in a supported region, data unavailable, "
+        "or API plan may not include this area."
+    )
+
+
+
 def _real_current_temperature(lat: float, lon: float) -> dict:
     """
     Fetch current temperature from FortyGuard using a single-hour heatmap
     (analytic_type="tcm") for the current UTC hour.
 
     Returns dict with temp_c and source="FORTYGUARD_LIVE".
+    Raises RuntimeError if FortyGuard returns no data.
     """
     ck = _cache_key("current", f"{lat:.4f}", f"{lon:.4f}")
     cached = _cache_get(ck)
     if cached:
+        logger.debug("[FG] current temp from cache for (%.4f, %.4f)", lat, lon)
         return cached
 
-now = _now_utc().replace(minute=0, second=0, microsecond=0)
+    # Round to current UTC hour for a stable, valid timestamp
+    now = _now_utc().replace(minute=0, second=0, microsecond=0)
 
-payload = {
-    "polygon_aoi": _build_small_aoi(lat, lon),
-    "date_time": {
-        "start_date": _date_str(now),
-        "filter_type": 1,
-        "start_time": _time_str(now),
-    },
-    "granularity": 100,
-    "analytic_type": "tcm",
-}
+    payload = {
+        "polygon_aoi": _build_small_aoi(lat, lon),
+        "date_time": {
+            "start_date": _date_str(now),
+            "filter_type": 1,
+            "start_time": _time_str(now),
+        },
+        "granularity": 100,
+        "analytic_type": "tcm",
+    }
+
+    logger.info(
+        "[FG] current temp request: lat=%.4f lon=%.4f date=%s time=%s",
+        lat, lon, _date_str(now), _time_str(now),
+    )
 
     try:
         result = _submit_and_poll("heatmap", payload)
     except Exception as e:
         raise RuntimeError(f"FortyGuard current temperature failed: {e}") from e
 
-stats_data = result.get("stats_data") or {}
-temperature_stats = stats_data.get("temperature_stats") or {}
+    # Log result structure for diagnostics
+    if isinstance(result, dict):
+        logger.info("[FG] result keys: %s", list(result.keys()))
+        stats_data = result.get("stats_data") or {}
+        if stats_data:
+            logger.info("[FG] stats_data keys: %s", list(stats_data.keys()))
+        temp_stats = stats_data.get("temperature_stats") or {}
+        if temp_stats:
+            logger.info("[FG] temperature_stats: %s", temp_stats)
 
-logger.warning("FORTYGUARD RESULT KEYS: %s", list(result.keys()))
-logger.warning("FORTYGUARD STATS DATA: %s", stats_data)
-logger.warning("FORTYGUARD TEMPERATURE STATS: %s", temperature_stats)
-
-temp_c = temperature_stats.get("mean")
-    if temp_c is None or temp_c == -999:
-        raise RuntimeError(
-            "FortyGuard heatmap returned no temperature data. "
-            "The selected location may not be in a supported region or there is insufficient data."
-        )
+    # Robust extraction across multiple possible response structures
+    temp_c = _extract_temp_from_result(result, "current_temp")
 
     out = {
         "lat": lat,
         "lon": lon,
-        "temp_c": round(float(temp_c), 1),
+        "temp_c": round(temp_c, 1),
         "apparent_temp_c": None,
         "heat_index_c": None,
         "relative_humidity": None,
@@ -479,9 +555,8 @@ temp_c = temperature_stats.get("mean")
         "solar_ghi": None,
         "source": "FORTYGUARD_LIVE",
         "scenario": None,
-        # Keep stats for downstream use
-        "_stats": stats,
     }
+    # Only cache successful real results
     _cache_set(ck, out)
     return out
 
@@ -771,24 +846,20 @@ def get_current_temperature(lat: float, lon: float) -> dict:
     if USE_MOCK:
         return _mock_current(lat, lon)
 
-    # Real mode: fetch current temp, then enrich with env params
-    try:
-        current = _real_current_temperature(lat, lon)
-        env = _real_env_params(lat, lon, current["temp_c"])
+    # LIVE mode — fetch real data, enrich with env params.
+    # Never fall back silently to mock when USE_MOCK=false.
+    # Let the caller (main.py) handle the error and return 502.
+    current = _real_current_temperature(lat, lon)
+    env = _real_env_params(lat, lon, current["temp_c"])
 
-        # Merge env params into current (real data takes priority over None)
-        current["heat_index_c"] = env.get("heat_index_c")
-        current["apparent_temp_c"] = env.get("apparent_temp_c")
-        current["wet_bulb_c"] = env.get("wet_bulb_c")
-        current["relative_humidity"] = env.get("relative_humidity")
-        current["solar_ghi"] = env.get("solar_ghi")
+    # Merge env params into current (real data takes priority over None)
+    current["heat_index_c"] = env.get("heat_index_c")
+    current["apparent_temp_c"] = env.get("apparent_temp_c")
+    current["wet_bulb_c"] = env.get("wet_bulb_c")
+    current["relative_humidity"] = env.get("relative_humidity")
+    current["solar_ghi"] = env.get("solar_ghi")
 
-        return current
-    except Exception as e:
-        logger.warning("FortyGuard live fetch failed (%s); falling back to mock data", e)
-        mock_data = _mock_current(lat, lon)
-        mock_data["source"] = "FORTYGUARD_LIVE_FALLBACK"
-        return mock_data
+    return current
 
 
 def get_forecast_12h(lat: float, lon: float) -> list:
@@ -899,16 +970,6 @@ def get_heatmap_data(lat: float, lon: float, delta_deg: float = 0.04) -> dict:
         _cache_set(ck, out)
         return out
     except Exception as e:
-        logger.warning("FortyGuard heatmap failed (%s); returning fallback stats", e)
-        return {
-            "map_data": None,
-            "stats_data": {
-                "temperature_stats": {
-                    "mean": _pick_scenario(lat, lon)["temp_c"],
-                    "minimum": _pick_scenario(lat, lon)["temp_c"] - 3,
-                    "maximum": _pick_scenario(lat, lon)["temp_c"] + 4,
-                    "standard_deviation": 2.1,
-                }
-            },
-            "source": "FORTYGUARD_LIVE_FALLBACK",
-        }
+        logger.error("[FG] get_heatmap_data failed: %s", e)
+        # Re-raise so main.py can return a proper 502 instead of fake data
+        raise RuntimeError(f"FortyGuard heatmap failed: {e}") from e

@@ -423,8 +423,8 @@ def get_heat_risk(
     raw_source = current_data.get("source", "UNKNOWN")
     if raw_source == "MOCK_DETERMINISTIC":
         data_source = "MOCK_DETERMINISTIC"
-    elif raw_source == "FORTYGUARD_LIVE":
-        # Check if hist was unavailable
+    elif raw_source in ("FORTYGUARD_LIVE", "FORTYGUARD_LIVE_PARTIAL"):
+        # Downgrade to PARTIAL if historical baseline was unavailable
         if hist_data.get("source") == "UNAVAILABLE":
             data_source = "FORTYGUARD_LIVE_PARTIAL"
         else:
