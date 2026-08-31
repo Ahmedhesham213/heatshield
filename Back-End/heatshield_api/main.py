@@ -274,6 +274,11 @@ def remove_location(location_id: int, user: dict = Depends(get_current_user)):
 # ===========================================================================
 
 
+@app.head("/api/heat-risk")
+def head_heat_risk():
+    return {}
+
+
 @app.get("/api/heat-risk", response_model=HeatRiskResponse)
 def get_heat_risk(
     lat: float = Query(..., description="Latitude", examples=[40.7128]),
@@ -476,6 +481,11 @@ def get_heat_risk(
 # ===========================================================================
 
 
+@app.head("/api/nearby-safer")
+def head_nearby_safer():
+    return {}
+
+
 @app.get("/api/nearby-safer", response_model=SaferNearbyResponse)
 def get_nearby_safer(
     lat: float = Query(..., description="Latitude", examples=[40.7128]),
@@ -555,6 +565,11 @@ def get_heatmap(
 # ===========================================================================
 #  ROOT / HEALTH CHECK
 # ===========================================================================
+
+
+@app.head("/")
+def head_root():
+    return {}
 
 
 @app.get("/")

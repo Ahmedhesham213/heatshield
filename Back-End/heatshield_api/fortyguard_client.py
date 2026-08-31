@@ -117,8 +117,18 @@ def _cache_set(key: str, value) -> None:
         _cache[key] = (time.time(), value)
 
 
+# Global Circuit Breaker to prevent hammering FortyGuard when credits are exhausted
+_API_DISABLED_UNTIL: float = 0.0
+
+
 def _cache_key(*parts) -> str:
-    return "|".join(str(p) for p in parts)
+    formatted = []
+    for p in parts:
+        if isinstance(p, float):
+            formatted.append(f"{p:.3f}")
+        else:
+            formatted.append(str(p))
+    return "|".join(formatted)
 
 
 # ===========================================================================
@@ -261,7 +271,12 @@ def _fortyguard_submit(endpoint: str, payload: dict) -> str:
     POST to a FortyGuard endpoint and return the activity_id.
     activity_id is at data.activity_id per the official docs.
     """
+    global _API_DISABLED_UNTIL
+    if time.time() < _API_DISABLED_UNTIL:
+        raise RuntimeError("FortyGuard API paused (circuit breaker active due to credit/auth limit).")
+
     url = f"{FORTYGUARD_BASE_URL}/{endpoint}"
+    logger.info("[FG] POST %s", url)
     try:
         resp = requests.post(
             url,
@@ -274,15 +289,21 @@ def _fortyguard_submit(endpoint: str, payload: dict) -> str:
     except requests.exceptions.ConnectionError as e:
         raise ConnectionError(f"FortyGuard unreachable: {e}")
 
-    if resp.status_code == 401:
-        raise PermissionError("Invalid or missing FortyGuard API key.")
-    if resp.status_code == 403:
-        raise PermissionError("FortyGuard API key does not have access to this endpoint.")
+    logger.info("[FG] POST %s → HTTP %d", endpoint, resp.status_code)
+
+    if resp.status_code in (401, 403, 429):
+        _API_DISABLED_UNTIL = time.time() + 180.0
+        logger.warning("[FG] HTTP %d (insufficient credits/auth). Circuit breaker active for 180s.", resp.status_code)
+        raise PermissionError(f"FortyGuard API key limit/permission issue ({resp.status_code}).")
+
     if resp.status_code == 422:
-        detail = resp.text[:200]
+        detail = resp.text[:400]
+        if "credit" in detail.lower():
+            _API_DISABLED_UNTIL = time.time() + 180.0
+            logger.warning("[FG] Insufficient credits in 422 response. Circuit breaker active for 180s.")
+        logger.error("[FG] 422 payload rejection: %s", detail)
         raise ValueError(f"FortyGuard rejected request payload (422): {detail}")
-    if resp.status_code == 429:
-        raise RuntimeError("FortyGuard rate limit exceeded. Retry later.")
+
     if resp.status_code >= 500:
         raise RuntimeError(f"FortyGuard server error ({resp.status_code}).")
 
