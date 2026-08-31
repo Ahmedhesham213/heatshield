@@ -828,8 +828,11 @@ def find_safer_nearby(lat: float, lon: float, radius_m: float = 300, n_points: i
     """
     from fortyguard_client import get_current_temperature  # type: ignore
 
-    base = get_current_temperature(lat, lon)
-    base_temp = base["temp_c"]
+    try:
+        base = get_current_temperature(lat, lon)
+        base_temp = float(base.get("temp_c", 34.0))
+    except Exception as e:
+        base_temp = 34.0
 
     best_candidate = None
     best_temp = base_temp
