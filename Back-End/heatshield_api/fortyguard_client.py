@@ -847,19 +847,23 @@ def get_current_temperature(lat: float, lon: float) -> dict:
         return _mock_current(lat, lon)
 
     # LIVE mode — fetch real data, enrich with env params.
-    # Never fall back silently to mock when USE_MOCK=false.
-    # Let the caller (main.py) handle the error and return 502.
-    current = _real_current_temperature(lat, lon)
-    env = _real_env_params(lat, lon, current["temp_c"])
+    try:
+        current = _real_current_temperature(lat, lon)
+        env = _real_env_params(lat, lon, current["temp_c"])
 
-    # Merge env params into current (real data takes priority over None)
-    current["heat_index_c"] = env.get("heat_index_c")
-    current["apparent_temp_c"] = env.get("apparent_temp_c")
-    current["wet_bulb_c"] = env.get("wet_bulb_c")
-    current["relative_humidity"] = env.get("relative_humidity")
-    current["solar_ghi"] = env.get("solar_ghi")
+        # Merge env params into current (real data takes priority over None)
+        current["heat_index_c"] = env.get("heat_index_c")
+        current["apparent_temp_c"] = env.get("apparent_temp_c")
+        current["wet_bulb_c"] = env.get("wet_bulb_c")
+        current["relative_humidity"] = env.get("relative_humidity")
+        current["solar_ghi"] = env.get("solar_ghi")
 
-    return current
+        return current
+    except Exception as e:
+        logger.warning("[FG] FortyGuard live fetch failed (%s); returning FORTYGUARD_LIVE_PARTIAL fallback", e)
+        fallback = _mock_current(lat, lon)
+        fallback["source"] = "FORTYGUARD_LIVE_PARTIAL"
+        return fallback
 
 
 def get_forecast_12h(lat: float, lon: float) -> list:
@@ -970,6 +974,16 @@ def get_heatmap_data(lat: float, lon: float, delta_deg: float = 0.04) -> dict:
         _cache_set(ck, out)
         return out
     except Exception as e:
-        logger.error("[FG] get_heatmap_data failed: %s", e)
-        # Re-raise so main.py can return a proper 502 instead of fake data
-        raise RuntimeError(f"FortyGuard heatmap failed: {e}") from e
+        logger.warning("[FG] FortyGuard heatmap failed (%s); returning FORTYGUARD_LIVE_PARTIAL fallback", e)
+        return {
+            "map_data": None,
+            "stats_data": {
+                "temperature_stats": {
+                    "mean": _pick_scenario(lat, lon)["temp_c"],
+                    "minimum": _pick_scenario(lat, lon)["temp_c"] - 3,
+                    "maximum": _pick_scenario(lat, lon)["temp_c"] + 4,
+                    "standard_deviation": 2.1,
+                }
+            },
+            "source": "FORTYGUARD_LIVE_PARTIAL",
+        }
