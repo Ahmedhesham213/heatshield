@@ -507,8 +507,8 @@ def _real_current_temperature(lat: float, lon: float) -> dict:
         logger.debug("[FG] current temp from cache for (%.4f, %.4f)", lat, lon)
         return cached
 
-    # Round to current UTC hour for a stable, valid timestamp
-    now = _now_utc().replace(minute=0, second=0, microsecond=0)
+    # Use current UTC time for the snapshot
+    now = _now_utc()
 
     payload = {
         "polygon_aoi": _build_small_aoi(lat, lon),
