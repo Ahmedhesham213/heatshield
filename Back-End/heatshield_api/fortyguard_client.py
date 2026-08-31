@@ -436,25 +436,32 @@ def _real_current_temperature(lat: float, lon: float) -> dict:
     if cached:
         return cached
 
-    now = _now_utc()
-    payload = {
-        "polygon_aoi": _build_small_aoi(lat, lon),
-        "date_time": {
-            "start_date": _date_str(now),
-            "filter_type": 1,
-            "start_time": _time_str(now),
-        },
-        "granularity": 100,
-        "analytic_type": "tcm",
-    }
+now = _now_utc().replace(minute=0, second=0, microsecond=0)
+
+payload = {
+    "polygon_aoi": _build_small_aoi(lat, lon),
+    "date_time": {
+        "start_date": _date_str(now),
+        "filter_type": 1,
+        "start_time": _time_str(now),
+    },
+    "granularity": 100,
+    "analytic_type": "tcm",
+}
 
     try:
         result = _submit_and_poll("heatmap", payload)
     except Exception as e:
         raise RuntimeError(f"FortyGuard current temperature failed: {e}") from e
 
-    stats = (result.get("stats_data") or {}).get("temperature_stats") or {}
-    temp_c = stats.get("mean")
+stats_data = result.get("stats_data") or {}
+temperature_stats = stats_data.get("temperature_stats") or {}
+
+logger.warning("FORTYGUARD RESULT KEYS: %s", list(result.keys()))
+logger.warning("FORTYGUARD STATS DATA: %s", stats_data)
+logger.warning("FORTYGUARD TEMPERATURE STATS: %s", temperature_stats)
+
+temp_c = temperature_stats.get("mean")
     if temp_c is None or temp_c == -999:
         raise RuntimeError(
             "FortyGuard heatmap returned no temperature data. "
