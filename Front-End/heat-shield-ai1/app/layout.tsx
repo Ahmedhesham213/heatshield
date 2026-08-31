@@ -1,4 +1,3 @@
-import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { AuthProvider } from '@/contexts/auth-context'
 import './globals.css'
@@ -71,7 +70,6 @@ export default function RootLayout({
         <AuthProvider>
           {children}
         </AuthProvider>
-        {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
   )
