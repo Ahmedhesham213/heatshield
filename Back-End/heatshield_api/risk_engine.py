@@ -22,6 +22,7 @@ official weather warnings, occupational safety guidance, or medical advice.
 """
 from __future__ import annotations
 
+import hashlib
 import math
 from dataclasses import dataclass
 from typing import Optional
