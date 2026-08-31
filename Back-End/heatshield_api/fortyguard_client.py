@@ -291,16 +291,13 @@ def _fortyguard_submit(endpoint: str, payload: dict) -> str:
 
     logger.info("[FG] POST %s → HTTP %d", endpoint, resp.status_code)
 
-    if resp.status_code in (401, 403, 429):
-        _API_DISABLED_UNTIL = time.time() + 180.0
-        logger.warning("[FG] HTTP %d (insufficient credits/auth). Circuit breaker active for 180s.", resp.status_code)
+    if resp.status_code in (401, 402, 403, 429) or (resp.status_code >= 400 and any(k in resp.text.lower() for k in ("credit", "insufficient", "payment", "limit"))):
+        _API_DISABLED_UNTIL = time.time() + 600.0
+        logger.warning("[FG] HTTP %d (insufficient credits/auth). Circuit breaker active for 600s.", resp.status_code)
         raise PermissionError(f"FortyGuard API key limit/permission issue ({resp.status_code}).")
 
     if resp.status_code == 422:
         detail = resp.text[:400]
-        if "credit" in detail.lower():
-            _API_DISABLED_UNTIL = time.time() + 180.0
-            logger.warning("[FG] Insufficient credits in 422 response. Circuit breaker active for 180s.")
         logger.error("[FG] 422 payload rejection: %s", detail)
         raise ValueError(f"FortyGuard rejected request payload (422): {detail}")
 
@@ -593,6 +590,9 @@ def _real_historical_data(lat: float, lon: float) -> dict:
     cached = _cache_get(ck)
     if cached:
         return cached
+
+    if time.time() < _API_DISABLED_UNTIL:
+        return {"historical_avg_c": None, "historical_std_c": None, "source": "UNAVAILABLE"}
 
     hist_date = _now_utc() - timedelta(days=365)
     payload = {
